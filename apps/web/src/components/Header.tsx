@@ -1,11 +1,13 @@
 import React from 'react';
-import { Mic2, User, LogOut, Radio, History, Cpu } from 'lucide-react';
+import { Mic2, User, LogOut, Radio, History, Cpu, Layers } from 'lucide-react';
 import { UserProfile } from '../types';
+
+export type AppTabType = 'projects' | 'single' | 'history' | 'engines';
 
 interface HeaderProps {
   user: UserProfile | null;
-  activeTab: 'studio' | 'history' | 'engines';
-  onTabChange: (tab: 'studio' | 'history' | 'engines') => void;
+  activeTab: AppTabType;
+  onTabChange: (tab: AppTabType) => void;
   onLogout: () => void;
 }
 
@@ -20,17 +22,17 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
         {/* Brand */}
         <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center shadow-lg shadow-emerald-950/40">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-purple-600 via-emerald-600 to-teal-500 flex items-center justify-center shadow-lg shadow-purple-950/40">
             <Mic2 className="w-5 h-5 text-white" />
           </div>
           <div>
             <div className="flex items-center space-x-2">
               <span className="font-bold text-lg text-white tracking-tight">AI Voice Studio</span>
-              <span className="text-[10px] font-semibold tracking-wider uppercase px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                Phase 1 MVP
+              <span className="text-[10px] font-semibold tracking-wider uppercase px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                Phase 4 Pro Studio
               </span>
             </div>
-            <p className="text-xs text-slate-400">Local-First Modular Speech Platform</p>
+            <p className="text-xs text-slate-400">Local-First Multi-Speaker Speech Workstation</p>
           </div>
         </div>
 
@@ -38,15 +40,26 @@ export const Header: React.FC<HeaderProps> = ({
         {user && (
           <nav className="flex items-center space-x-1 bg-slate-950/60 p-1 rounded-xl border border-slate-800/80">
             <button
-              onClick={() => onTabChange('studio')}
+              onClick={() => onTabChange('projects')}
               className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                activeTab === 'studio'
+                activeTab === 'projects'
+                  ? 'bg-purple-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+              }`}
+            >
+              <Layers className="w-3.5 h-3.5" />
+              <span>Dự Án Studio</span>
+            </button>
+            <button
+              onClick={() => onTabChange('single')}
+              className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                activeTab === 'single'
                   ? 'bg-emerald-600 text-white shadow-sm'
                   : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
               }`}
             >
               <Radio className="w-3.5 h-3.5" />
-              <span>Studio</span>
+              <span>Thử Giọng Lẻ</span>
             </button>
             <button
               onClick={() => onTabChange('history')}

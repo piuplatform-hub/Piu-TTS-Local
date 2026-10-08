@@ -6,6 +6,12 @@ import {
   JobRecord,
   ArtifactMetadata,
   ApiProblemError,
+  Character,
+  ScriptSegment,
+  ProjectSummary,
+  ProjectDetail,
+  ProjectExport,
+  TextSegmentationResult,
 } from '../types';
 
 const TOKEN_KEY = 'ai_voice_studio_token';
@@ -335,6 +341,255 @@ class ApiClient {
         pollInterval = null;
       }
     };
+  }
+
+  // -------------------------------------------------------------
+  // PHASE 4 STUDIO WORKSPACE METHODS
+  // -------------------------------------------------------------
+  async listProjects(): Promise<ProjectSummary[]> {
+    return this.request<ProjectSummary[]>('/api/v1/projects');
+  }
+
+  async createProject(params: {
+    title: string;
+    description?: string;
+    project_type?: 'narration' | 'dialogue';
+    settings?: Record<string, any>;
+  }): Promise<ProjectDetail> {
+    return this.request<ProjectDetail>('/api/v1/projects', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    });
+  }
+
+  async getProject(projectId: string): Promise<ProjectDetail> {
+    return this.request<ProjectDetail>(`/api/v1/projects/${projectId}`);
+  }
+
+  async updateProject(
+    projectId: string,
+    params: {
+      title?: string;
+      description?: string;
+      settings?: Record<string, any>;
+      expected_version?: number;
+    }
+  ): Promise<ProjectDetail> {
+    return this.request<ProjectDetail>(`/api/v1/projects/${projectId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(params),
+    });
+  }
+
+  async deleteProject(projectId: string): Promise<{ message: string }> {
+    return this.request<{ message: string }>(`/api/v1/projects/${projectId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // Character management
+  async createCharacter(
+    projectId: string,
+    params: {
+      name: string;
+      description?: string;
+      avatar_color?: string;
+      engine_id: string;
+      voice_id: string;
+      parameters?: Record<string, any>;
+      expected_project_version?: number;
+    }
+  ): Promise<Character> {
+    return this.request<Character>(`/api/v1/projects/${projectId}/characters`, {
+      method: 'POST',
+      body: JSON.stringify(params),
+    });
+  }
+
+  async updateCharacter(
+    projectId: string,
+    characterId: string,
+    params: {
+      name?: string;
+      description?: string;
+      avatar_color?: string;
+      engine_id?: string;
+      voice_id?: string;
+      parameters?: Record<string, any>;
+      expected_project_version?: number;
+    }
+  ): Promise<Character> {
+    return this.request<Character>(`/api/v1/projects/${projectId}/characters/${characterId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(params),
+    });
+  }
+
+  async deleteCharacter(
+    projectId: string,
+    characterId: string,
+    expectedProjectVersion?: number
+  ): Promise<{ message: string }> {
+    const url = expectedProjectVersion !== undefined
+      ? `/api/v1/projects/${projectId}/characters/${characterId}?expected_project_version=${expectedProjectVersion}`
+      : `/api/v1/projects/${projectId}/characters/${characterId}`;
+    return this.request<{ message: string }>(url, {
+      method: 'DELETE',
+    });
+  }
+
+  // Segment management
+  async addSegment(
+    projectId: string,
+    params: {
+      sequence_order?: number;
+      character_id?: string | null;
+      text: string;
+      language?: string;
+      engine_id?: string;
+      voice_id?: string;
+      parameters?: Record<string, any>;
+      pause_after_ms?: number;
+      expected_project_version?: number;
+    }
+  ): Promise<ScriptSegment> {
+    return this.request<ScriptSegment>(`/api/v1/projects/${projectId}/segments`, {
+      method: 'POST',
+      body: JSON.stringify(params),
+    });
+  }
+
+  async updateSegment(
+    projectId: string,
+    segmentId: string,
+    params: {
+      character_id?: string | null;
+      sequence_order?: number;
+      text?: string;
+      language?: string;
+      engine_id?: string;
+      voice_id?: string;
+      parameters?: Record<string, any>;
+      pause_after_ms?: number;
+      expected_segment_version?: number;
+      expected_project_version?: number;
+    }
+  ): Promise<ScriptSegment> {
+    return this.request<ScriptSegment>(`/api/v1/projects/${projectId}/segments/${segmentId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(params),
+    });
+  }
+
+  async deleteSegment(
+    projectId: string,
+    segmentId: string,
+    expectedProjectVersion?: number
+  ): Promise<{ message: string }> {
+    const url = expectedProjectVersion !== undefined
+      ? `/api/v1/projects/${projectId}/segments/${segmentId}?expected_project_version=${expectedProjectVersion}`
+      : `/api/v1/projects/${projectId}/segments/${segmentId}`;
+    return this.request<{ message: string }>(url, {
+      method: 'DELETE',
+    });
+  }
+
+  async bulkSyncSegments(
+    projectId: string,
+    params: {
+      expected_project_version: number;
+      segments: Array<{
+        id?: string;
+        sequence_order: number;
+        character_id?: string | null;
+        text: string;
+        language: string;
+        engine_id: string;
+        voice_id: string;
+        parameters?: Record<string, any>;
+        pause_after_ms?: number;
+      }>;
+    }
+  ): Promise<ProjectDetail> {
+    return this.request<ProjectDetail>(`/api/v1/projects/${projectId}/segments/sync`, {
+      method: 'PUT',
+      body: JSON.stringify(params),
+    });
+  }
+
+  // Text Segmentation
+  async previewTextSegmentation(params: {
+    text: string;
+    language?: 'vi' | 'zh' | 'en';
+    max_chars_per_segment?: number;
+  }): Promise<TextSegmentationResult> {
+    return this.request<TextSegmentationResult>('/api/v1/projects/segment-text', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    });
+  }
+
+  async autoSegmentProject(
+    projectId: string,
+    params: {
+      text: string;
+      language?: 'vi' | 'zh' | 'en';
+      max_chars_per_segment?: number;
+      default_engine_id?: string;
+      default_voice_id?: string;
+      expected_project_version?: number;
+    }
+  ): Promise<ScriptSegment[]> {
+    return this.request<ScriptSegment[]>(`/api/v1/projects/${projectId}/auto-segment`, {
+      method: 'POST',
+      body: JSON.stringify(params),
+    });
+  }
+
+  // Rendering & Reconcile
+  async renderSegment(projectId: string, segmentId: string): Promise<ScriptSegment> {
+    return this.request<ScriptSegment>(`/api/v1/projects/${projectId}/segments/${segmentId}/render`, {
+      method: 'POST',
+    });
+  }
+
+  async renderBatch(
+    projectId: string,
+    params?: {
+      segment_ids?: string[];
+      only_stale_or_draft?: boolean;
+    }
+  ): Promise<ScriptSegment[]> {
+    return this.request<ScriptSegment[]>(`/api/v1/projects/${projectId}/render-batch`, {
+      method: 'POST',
+      body: JSON.stringify(params || {}),
+    });
+  }
+
+  async reconcileProject(projectId: string): Promise<ProjectDetail> {
+    return this.request<ProjectDetail>(`/api/v1/projects/${projectId}/reconcile`, {
+      method: 'POST',
+    });
+  }
+
+  // Master Audio Export
+  async exportMasterAudio(
+    projectId: string,
+    params: {
+      format?: 'wav' | 'mp3';
+      sample_rate?: number;
+      normalize_loudness?: boolean;
+      target_lufs?: number;
+    }
+  ): Promise<ProjectExport> {
+    return this.request<ProjectExport>(`/api/v1/projects/${projectId}/export`, {
+      method: 'POST',
+      body: JSON.stringify(params),
+    });
+  }
+
+  getMasterExportDownloadUrl(exportId: string): string {
+    return `/api/v1/projects/exports/${exportId}/download`;
   }
 }
 

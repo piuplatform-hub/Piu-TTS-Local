@@ -1,6 +1,31 @@
 # Documentation changelog
 
-## 2026-10-08 — Phase 3 Acceptance Gate: Real Engine Audit, Secure Audio Pipeline & Full Regression Verified (Gate PASS)
+## 2026-10-08 — Phase 4 Professional Studio UX, Long-Form TTS, Dialogue Workspace & Audio Mastering Completed
+
+- **Milestone 4A (Project Workspace & Optimistic Concurrency Control):**
+  - Applied Alembic migration `20261008_0004_phase4_studio.py` introducing 5 new tables: `projects`, `characters`, `script_segments`, `segment_revisions`, and `project_exports`.
+  - Implemented optimistic locking with strict HTTP `409 Conflict` checks on mismatched `expected_version` / `expected_project_version`.
+  - Implemented multi-user data isolation with HTTP `403 Forbidden` across foreign project boundaries.
+- **Milestone 4B (Long-form Speech Studio & Intelligent Segmentation):**
+  - Created `TextSegmenter` with language-aware linguistic boundaries for Vietnamese (< 220 chars, protecting abbreviations TP., TS., GS.) and Mandarin Chinese (< 120 chars, honoring `。！？；…`).
+  - Implemented partial invalidation: segment text modifications automatically flip status to `stale` (Needs Regeneration) while preserving `active_artifact_id`.
+  - Implemented non-destructive audio revisions in `SegmentRevisionRecord` for auditioning prior renders.
+- **Milestone 4C (Multi-Character Dialogue Studio):**
+  - Created Character Persona panel with customizable avatar color badges, fixed voice assignments, and multi-engine routing (VieNeu 48kHz CPU vs Qwen3 24kHz GPU).
+  - Built dialogue timeline stream with per-line speaker dropdown, editable text, and configurable turn-taking pauses (200ms–1500ms).
+- **Milestone 4D (Audio DSP, Mastering & Export):**
+  - Created `AudioDspService` wrapping local FFmpeg 7.1.1 essentials securely via subprocess argument lists and temporary concat demuxer manifests (bypassing Windows 8191-character CLI limits).
+  - Implemented sample rate normalization via high-quality SOXR resampler (`aresample=resampler=soxr`) for mixed 48kHz + 24kHz inputs.
+  - Implemented international broadcast loudness mastering via two-pass EBU R128 (`loudnorm=I=-16.0` or `-23.0 LUFS`).
+  - Supported master export to WAV (PCM 16-bit Lossless) and MP3 (320 kbps High Quality) with SHA-256 integrity validation.
+- **Frontend Professional Workstation UI:**
+  - Implemented `ProjectsView.tsx`, `SpeechStudioView.tsx`, `DialogueStudioView.tsx`, and `MasterExportModal.tsx`.
+  - Upgraded `Header.tsx` and `App.tsx` navigation. Cleanly compiled production bundle (`apps/web/dist`) with 0 errors.
+- **Full Two-Tier Regression & Playwright Verification (100% PASS):**
+  - 67/67 Pytest unit & integration tests passed in 2m22s (0 failed).
+  - 1/1 Playwright Real Chrome Browser E2E test passed in 6.5s.
+  - Captured 5 authentic 1366x900 screenshots in `docs/reports/screenshots/phase4_*.png`.
+- **Published Deliverables:** `PHASE_04_PROFESSIONAL_STUDIO.md`, `PHASE_04_IMPLEMENTATION_REPORT.md`, `PHASE_04_TEST_EVIDENCE.md`, `PHASE_04_KNOWN_LIMITATIONS.md`, and `PHASE_04_AUDIO_EXPORT_VALIDATION.md`.
 
 - **Remediated Secure Voice Cloning Pipeline:** Eliminated server filesystem path injection vectors (`ref_audio`). Implemented `ReferenceAssetRecord` in `apps/server/src/models/asset.py` with Alembic migration `20261008_0003_reference_assets.py`. Created `AssetService` validating RIFF/WAVE headers (0.5s–30s duration, <=15MB), enforcing UUID server paths, cross-user authorization isolation (`403 Forbidden`), and requiring explicit user legal consent (`voice_use_consent`).
 - **Engine Parameter Contract Hardening:** `DurableQueueService` strictly validates requested engine capabilities (`VOICE_CLONING_NOT_SUPPORTED`), manifests `parameters_schema` keys (`UNSUPPORTED_PARAMETER`), range limits for `speed` and enum for Qwen3 `speaker` (`INVALID_PARAMETER_VALUE`), and voice catalog membership (`UNSUPPORTED_VOICE`).

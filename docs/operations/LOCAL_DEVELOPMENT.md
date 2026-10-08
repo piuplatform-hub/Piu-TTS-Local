@@ -91,13 +91,13 @@ Tách biệt hoàn toàn API Server và Durable Job Scheduler thành hai tiến 
 # --- CHIẾN LƯỢC KIỂM THỬ 2 TẦNG (TWO-TIER TEST STRATEGY) ---
 
 # Tầng 1: Fast CI Suite (Không cần GPU, thực thi < 60s)
-.venv\Scripts\pytest -v tests/contract/test_mock_engine.py tests/integration/test_auth_api.py tests/integration/test_durable_jobs.py tests/integration/test_jobs_api.py tests/integration/test_migrations.py tests/integration/test_process_resilience.py tests/integration/test_security_hardened.py tests/integration/test_spa_serving.py tests/integration/test_supervisor_resilience.py tests/integration/test_voice_cloning_security.py
+.venv\Scripts\pytest -v tests/unit/test_text_segmenter.py tests/contract/test_mock_engine.py tests/integration/test_auth_api.py tests/integration/test_durable_jobs.py tests/integration/test_jobs_api.py tests/integration/test_migrations.py tests/integration/test_projects_api.py tests/integration/test_phase4_end_to_end.py tests/integration/test_process_resilience.py tests/integration/test_security_hardened.py tests/integration/test_spa_serving.py tests/integration/test_supervisor_resilience.py tests/voice_cloning_security.py
 
-# Tầng 2: Hardware Integration Suite (Nạp model thực tế trên CPU & GPU CUDA)
-.venv\Scripts\pytest -v tests/contract/test_vieneu_engine.py tests/contract/test_qwen3_engine.py tests/integration/test_phase3_preflight.py tests/integration/test_phase3_integration.py tests/e2e/test_phase3_browser_e2e.py
+# Tầng 2: Hardware Integration Suite & Browser E2E Playwright
+.venv\Scripts\pytest -v tests/contract/test_vieneu_engine.py tests/contract/test_qwen3_engine.py tests/integration/test_phase3_preflight.py tests/integration/test_phase3_integration.py tests/e2e/test_phase3_browser_e2e.py tests/e2e/test_phase4_browser_e2e.py
 
-# Sinh trọn bộ gói âm thanh nghiệm thu và đo lường telemetry phần cứng:
-.venv\Scripts\python scripts/generate_acceptance_audio.py
+# Toàn bộ test suite tự động:
+.venv\Scripts\pytest tests/unit/ tests/integration/ tests/e2e/ -v
 ```
 
 ---
@@ -113,8 +113,9 @@ D:\AIVoiceStudioData/
 ├── .bootstrap_token          # Token một lần (tự động xóa sau khi khởi tạo thành công)
 ├── artifacts/                # Thư mục lưu trữ các file âm thanh WAV đã sinh (<uuid>.wav)
 ├── reference_assets/         # Tệp âm thanh mẫu tham chiếu cho Voice Cloning (có kiểm định)
+├── exports/                  # Tệp âm thanh Master WAV/MP3 hoàn chỉnh sau DSP EBU R128
 ├── acceptance_audio_phase3/  # 4 tệp WAV nghiệm thu chính thức và acceptance_manifest.json
-├── models/                   # Thư mục dành cho trọng số AI trong tương lai
+├── models/                   # Thư mục dành cho trọng số AI
 └── backups/                  # Thư mục lưu trữ bản sao lưu cơ sở dữ liệu
 ```
 

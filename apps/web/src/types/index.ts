@@ -78,3 +78,113 @@ export interface ApiProblemError {
   code?: string;
   instance?: string;
 }
+
+// -------------------------------------------------------------
+// PHASE 4 STUDIO WORKSPACE & MASTERING TYPES
+// -------------------------------------------------------------
+export interface Character {
+  id: string;
+  project_id: string;
+  name: string;
+  description?: string | null;
+  avatar_color: string;
+  engine_id: string;
+  voice_id: string;
+  parameters: Record<string, any>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SegmentRevision {
+  id: string;
+  segment_id: string;
+  revision_number: number;
+  text: string;
+  artifact_id: string;
+  duration_seconds: number;
+  sample_rate: number;
+  format: string;
+  created_at: string;
+}
+
+export type SegmentStatusType = 'draft' | 'queued' | 'rendering' | 'completed' | 'failed' | 'stale';
+
+export interface ScriptSegment {
+  id: string;
+  project_id: string;
+  character_id?: string | null;
+  sequence_order: number;
+  text: string;
+  language: string;
+  engine_id: string;
+  voice_id: string;
+  parameters: Record<string, any>;
+  pause_after_ms: number;
+  status: SegmentStatusType;
+  active_artifact_id?: string | null;
+  last_job_id?: string | null;
+  text_hash: string;
+  version: number;
+  revisions: SegmentRevision[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectExport {
+  id: string;
+  project_id: string;
+  user_id: string;
+  format: 'wav' | 'mp3';
+  sample_rate: number;
+  file_path: string;
+  file_size_bytes: number;
+  duration_seconds: number;
+  sha256_checksum: string;
+  loudness_lufs?: number | null;
+  segment_count: number;
+  created_at: string;
+}
+
+export interface ProjectSummary {
+  id: string;
+  user_id: string;
+  title: string;
+  description?: string | null;
+  project_type: 'narration' | 'dialogue';
+  settings: Record<string, any>;
+  version: number;
+  segment_count: number;
+  completed_segment_count: number;
+  total_audio_duration_s: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProjectDetail {
+  id: string;
+  user_id: string;
+  title: string;
+  description?: string | null;
+  project_type: 'narration' | 'dialogue';
+  settings: Record<string, any>;
+  version: number;
+  characters: Character[];
+  segments: ScriptSegment[];
+  exports: ProjectExport[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TextSegmentItem {
+  index: number;
+  text: string;
+  char_count: number;
+}
+
+export interface TextSegmentationResult {
+  language: string;
+  total_chars: number;
+  segment_count: number;
+  segments: TextSegmentItem[];
+}
+
