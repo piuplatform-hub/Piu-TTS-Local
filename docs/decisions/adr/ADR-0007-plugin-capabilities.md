@@ -1,7 +1,9 @@
 ---
 id: ADR-0007
 title: Versioned engine adapter and trust policy
-status: proposed
+status: accepted
+approved_date: 2026-10-08
+decision_authority: Product Owner
 owner: Product Owner
 created: 2026-10-08
 updated: 2026-10-08
@@ -22,6 +24,6 @@ Hardcoded per-model code is faster short term but brittle; adapter SDK has ongoi
 Mock + VieNeu + Qwen share contract; adding 3rd compatible adapter changes no core business logic.
 
 ## Status and links
-- **Status:** Proposed; Product Owner approval required.
+- **Status:** Accepted (2026-10-08 by Product Owner). Directional architectural baseline approved; technical assumptions regarding GPU, model quality, performance, and compatibility remain UNVERIFIED until benchmarked.
 - **Sources:** [Canonical Contracts](../../architecture/CANONICAL_CONTRACTS.md), [Original R1 decisions](../../architecture/TECHNOLOGY_DECISIONS.md), [Open Decisions](../../architecture/OPEN_DECISIONS.md).
 - **Superseded by:** None.

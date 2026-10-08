@@ -1,7 +1,9 @@
 ---
 id: ADR-0002
 title: Web-first shared frontend
-status: proposed
+status: accepted
+approved_date: 2026-10-08
+decision_authority: Product Owner
 owner: Product Owner
 created: 2026-10-08
 updated: 2026-10-08
@@ -22,6 +24,6 @@ Native Qt UI would ease some desktop integration but duplicate browser UI for LA
 Localhost UI and browser LAN deploy contract share the same frontend code; no frontend direct engine imports.
 
 ## Status and links
-- **Status:** Proposed; Product Owner approval required.
+- **Status:** Accepted (2026-10-08 by Product Owner). Directional architectural baseline approved; technical assumptions regarding GPU, model quality, performance, and compatibility remain UNVERIFIED until benchmarked.
 - **Sources:** [Canonical Contracts](../../architecture/CANONICAL_CONTRACTS.md), [Original R1 decisions](../../architecture/TECHNOLOGY_DECISIONS.md), [Open Decisions](../../architecture/OPEN_DECISIONS.md).
 - **Superseded by:** None.

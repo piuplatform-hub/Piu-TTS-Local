@@ -1,7 +1,9 @@
 ---
 id: ADR-0004
 title: Per-engine process isolation
-status: proposed
+status: accepted
+approved_date: 2026-10-08
+decision_authority: Product Owner
 owner: Product Owner
 created: 2026-10-08
 updated: 2026-10-08
@@ -22,6 +24,6 @@ HTTP overhead and extra server code vs stdio; process isolation alone is not unt
 Kill/crash test isolates API; confirmed worker startup/shutdown; no orphan process where OS supports process job grouping.
 
 ## Status and links
-- **Status:** Proposed; Product Owner approval required.
+- **Status:** Accepted (2026-10-08 by Product Owner). Directional architectural baseline approved; technical assumptions regarding GPU, model quality, performance, and compatibility remain UNVERIFIED until benchmarked.
 - **Sources:** [Canonical Contracts](../../architecture/CANONICAL_CONTRACTS.md), [Original R1 decisions](../../architecture/TECHNOLOGY_DECISIONS.md), [Open Decisions](../../architecture/OPEN_DECISIONS.md).
 - **Superseded by:** None.

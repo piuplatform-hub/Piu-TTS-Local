@@ -1,6 +1,6 @@
 # Documentation governance
 
-**Status:** Proposed · **Owner:** Product Owner + Technical Lead · **Created:** 2026-10-08
+**Status:** Accepted (2026-10-08 by Product Owner) · **Owner:** Product Owner + Technical Lead · **Created:** 2026-10-08
 
 ## Document lifecycle
 

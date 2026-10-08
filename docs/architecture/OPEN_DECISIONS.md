@@ -10,7 +10,7 @@
 
 ## 1. Phân loại Quyết định Kiến trúc (Categorized Decision Matrix)
 
-### 1.1 Kiến trúc Đề xuất Chấp Thuận (Recommended Architecture — awaiting Product Owner approval)
+### 1.1 Kiến trúc Đã Được Phê Duyệt Định Hướng (Baseline Approved by Product Owner — Gate DOC Passed 2026-10-08)
 * **API-First & Headless Core:** Core không phụ thuộc framework UI hay HTTP context.
 * **Web-First (React 19 + TypeScript + Vite):** Phục vụ đồng thời desktop và trình duyệt LAN.
 * **FastAPI Backend (Python 3.12):** Sinh tài liệu OpenAPI tự động, chuẩn hóa lỗi RFC 9457.
@@ -50,8 +50,8 @@
 
 ## 3. R1.1 — Remaining explicit gates
 
-- **Gate DOC:** Product Owner accepts documents and `docs/` governance. Documentation preparation **does not** authorize implementation.
-- **Gate PH1:** Owner separately authorizes Phase 1 repository/source modifications, local dependencies and localhost-only services.
+- **Gate DOC:** [PASSED 2026-10-08] Product Owner accepted R1.1 baseline documents and `docs/` governance. Implementation is NOT authorized.
+- **Gate PH1:** [PENDING] Owner separately authorizes Phase 1 repository/source modifications, local dependencies and localhost-only services.
 - **Gate SPIKE:** Owner separately authorizes download/installation of VieNeu/Qwen model weights, GPU runtime tests and resource usage.
 - **Gate LAN:** Owner separately authorizes TLS setup, firewall changes and LAN binding.
 - **Gate RELEASE:** Owner accepts security, backups, license and distribution checklists before team rollout.

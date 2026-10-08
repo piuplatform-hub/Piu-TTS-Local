@@ -1,7 +1,9 @@
 ---
 id: ADR-0003
 title: SQLite-backed queue with fenced leases
-status: proposed
+status: accepted
+approved_date: 2026-10-08
+decision_authority: Product Owner
 owner: Product Owner
 created: 2026-10-08
 updated: 2026-10-08
@@ -22,6 +24,6 @@ Redis/PostgreSQL would provide more scalable concurrency but cost more Windows o
 Two claimant and crash/restart tests; no duplicate active attempt; no stale artifact commit.
 
 ## Status and links
-- **Status:** Proposed; Product Owner approval required.
+- **Status:** Accepted (2026-10-08 by Product Owner). Directional architectural baseline approved; technical assumptions regarding GPU, model quality, performance, and compatibility remain UNVERIFIED until benchmarked.
 - **Sources:** [Canonical Contracts](../../architecture/CANONICAL_CONTRACTS.md), [Original R1 decisions](../../architecture/TECHNOLOGY_DECISIONS.md), [Open Decisions](../../architecture/OPEN_DECISIONS.md).
 - **Superseded by:** None.

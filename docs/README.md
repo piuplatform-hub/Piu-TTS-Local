@@ -1,6 +1,6 @@
 # AI Voice Studio — Documentation Hub
 
-> **Current status:** R1.1 documentation **proposed** for Product Owner approval (2026-10-08). **Phase 1 implementation has not started.** This hub is a reproducible documentation package; import/merge into the Antigravity PC repository is a separate step.
+> **Current status:** R1.1 documentation **accepted** as official baseline by Product Owner (2026-10-08). **Gate DOC passed; Phase 1 implementation has not started.** Technical hardware/model performance assumptions remain unverified pending Phase 1B benchmarks.
 
 ## Quick navigation
 
