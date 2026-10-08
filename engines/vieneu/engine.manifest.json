@@ -1,0 +1,50 @@
+{
+  "manifest_version": "1.0",
+  "engine_id": "vieneu-tts",
+  "name": "VieNeu-TTS v3 Turbo",
+  "version": "3.8.3",
+  "author": "pnnbao97 / OpenMOSS Team",
+  "license": "Apache-2.0",
+  "description": "High-quality neural Vietnamese speech synthesis and voice cloning on CPU using ONNX Runtime FP32",
+  "capabilities": [
+    "text_to_speech",
+    "voice_cloning",
+    "speaker_selection"
+  ],
+  "supported_languages": [
+    "vi"
+  ],
+  "default_sample_rate": 48000,
+  "runtime": {
+    "entrypoint": "engines/vieneu/worker.py",
+    "python_version_min": "3.10",
+    "python_version_max": "3.12",
+    "virtualenv_path": "D:/AIVoiceStudioData/benchmarks/envs/vieneu_env"
+  },
+  "hardware_profile": {
+    "supported_devices": [
+      "cpu"
+    ],
+    "default_device": "cpu",
+    "estimated_vram_mb": 0,
+    "estimated_ram_mb": 2048
+  },
+  "parameters_schema": {
+    "speed": {
+      "type": "number",
+      "minimum": 0.5,
+      "maximum": 2.0,
+      "default": 1.0,
+      "description": "Speech rate multiplier"
+    },
+    "ref_audio": {
+      "type": "string",
+      "description": "Optional path to reference WAV audio for zero-shot voice cloning"
+    },
+    "denoise": {
+      "type": "boolean",
+      "default": true,
+      "description": "Denoise reference audio before extracting speaker embedding"
+    }
+  }
+}

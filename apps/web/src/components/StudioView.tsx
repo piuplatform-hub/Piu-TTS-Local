@@ -12,6 +12,10 @@ import {
   XCircle,
   RefreshCw,
   Radio,
+  Mic,
+  FileAudio,
+  ShieldCheck,
+  Zap,
 } from 'lucide-react';
 import { api, ApiError } from '../api/client';
 import { EngineInfo, JobRecord } from '../types';
@@ -21,24 +25,28 @@ const ACTIVE_JOB_KEY = 'active_studio_job_id';
 
 const SAMPLE_PROMPTS = [
   {
-    label: 'Tiếng Việt - Chào mừng',
+    label: 'Tiếng Việt - Chào mừng (VieNeu)',
     lang: 'vi',
+    engineHint: 'vieneu-tts',
     text: 'Chào mừng bạn đến với AI Voice Studio. Đây là nền tảng xử lý và tổng hợp giọng nói AI chuyên nghiệp chạy hoàn toàn cục bộ trên máy tính của bạn.',
   },
   {
-    label: 'Tiếng Việt - Tin tức',
+    label: 'Tiếng Việt - Tin tức (VieNeu)',
     lang: 'vi',
+    engineHint: 'vieneu-tts',
     text: 'Hôm nay thời tiết tại thủ đô Hà Nội và các tỉnh phía Bắc duy trì trạng thái nhiều mây, độ ẩm cao và có sương mù nhẹ vào sáng sớm.',
   },
   {
-    label: 'Tiếng Trung - Chào hỏi',
+    label: 'Tiếng Trung - Qwen3-TTS (GPU)',
     lang: 'zh',
-    text: '你好，欢迎使用 AI Voice Studio 本地语音合成系统。',
+    engineHint: 'qwen3-tts',
+    text: '你好，欢迎使用 AI Voice Studio 本地多模型语音合成系统。',
   },
   {
-    label: 'English - Welcome',
-    lang: 'en',
-    text: 'Welcome to AI Voice Studio, an open modular speech synthesis platform running offline.',
+    label: 'Tiếng Trung - Tin tức (Qwen3)',
+    lang: 'zh',
+    engineHint: 'qwen3-tts',
+    text: '人工智能正在快速重塑现代技术与数字内容创作方式。',
   },
 ];
 
@@ -49,6 +57,11 @@ export const StudioView: React.FC = () => {
   const [selectedVoiceId, setSelectedVoiceId] = useState<string>('');
   const [speed, setSpeed] = useState<number>(1.0);
   const [text, setText] = useState<string>(SAMPLE_PROMPTS[0].text);
+
+  // Phase 3: Voice Cloning Controls
+  const [synthesisMode, setSynthesisMode] = useState<'preset' | 'clone'>('preset');
+  const [refAudioPath, setRefAudioPath] = useState<string>('');
+  const [denoiseRef, setDenoiseRef] = useState<boolean>(true);
 
   const [loadingEngines, setLoadingEngines] = useState<boolean>(true);
   const [submitting, setSubmitting] = useState<boolean>(false);
@@ -91,11 +104,12 @@ export const StudioView: React.FC = () => {
       .then((engs) => {
         setEngines(engs);
         if (engs.length > 0) {
-          const first = engs[0];
-          setSelectedEngineId(first.id);
-          const lang = first.supported_languages[0] || 'vi';
+          // Prefer vieneu-tts if available, else first
+          const preferred = engs.find((e) => e.id === 'vieneu-tts') || engs[0];
+          setSelectedEngineId(preferred.id);
+          const lang = preferred.supported_languages.includes('vi') ? 'vi' : preferred.supported_languages[0];
           setSelectedLang(lang);
-          const voice = first.preset_voices.find((v) => v.language === lang);
+          const voice = preferred.preset_voices.find((v) => v.language === lang) || preferred.preset_voices[0];
           if (voice) setSelectedVoiceId(voice.id);
         }
       })
@@ -106,8 +120,29 @@ export const StudioView: React.FC = () => {
       .finally(() => setLoadingEngines(false));
   }, []);
 
-  // Update available voices when engine or language changes
   const activeEngine = engines.find((e) => e.id === selectedEngineId);
+  const supportsCloning = activeEngine?.capabilities.includes('voice_cloning') ?? false;
+
+  // Handle engine change: reset language and voice to compatible ones
+  const handleEngineChange = (engineId: string) => {
+    setSelectedEngineId(engineId);
+    const eng = engines.find((e) => e.id === engineId);
+    if (eng) {
+      if (!eng.supported_languages.includes(selectedLang)) {
+        const nextLang = eng.supported_languages[0] || 'vi';
+        setSelectedLang(nextLang);
+        const voice = eng.preset_voices.find((v) => v.language === nextLang) || eng.preset_voices[0];
+        if (voice) setSelectedVoiceId(voice.id);
+      } else {
+        const voice = eng.preset_voices.find((v) => v.language === selectedLang) || eng.preset_voices[0];
+        if (voice) setSelectedVoiceId(voice.id);
+      }
+      if (!eng.capabilities.includes('voice_cloning')) {
+        setSynthesisMode('preset');
+      }
+    }
+  };
+
   const filteredVoices = activeEngine?.preset_voices.filter((v) => v.language === selectedLang) || [];
 
   useEffect(() => {
@@ -164,7 +199,7 @@ export const StudioView: React.FC = () => {
           return updated;
         });
 
-        // Also fetch full sync if terminal
+        // Fetch full sync if terminal
         if (['completed', 'failed', 'cancelled'].includes(evtType)) {
           api.getJob(jobId).then(setCurrentJob).catch(() => {});
         }
@@ -182,6 +217,18 @@ export const StudioView: React.FC = () => {
       setError('Vui lòng nhập nội dung văn bản cần chuyển đổi.');
       return;
     }
+
+    const parameters: Record<string, any> = {};
+
+    if (synthesisMode === 'clone' && supportsCloning) {
+      if (!refAudioPath.trim()) {
+        setError('Vui lòng nhập đường dẫn tệp âm thanh WAV mẫu để nhân bản giọng nói.');
+        return;
+      }
+      parameters.ref_audio = refAudioPath.trim();
+      parameters.denoise = denoiseRef;
+    }
+
     setError(null);
     setSubmitting(true);
 
@@ -190,8 +237,9 @@ export const StudioView: React.FC = () => {
         text: text.trim(),
         engine_id: selectedEngineId,
         language: selectedLang,
-        voice_id: selectedVoiceId || undefined,
+        voice_id: synthesisMode === 'preset' ? (selectedVoiceId || undefined) : undefined,
         speed,
+        parameters,
         idempotency_key: `client-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       });
       setCurrentJob(job);
@@ -246,8 +294,9 @@ export const StudioView: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold text-white tracking-tight flex items-center space-x-2.5">
             <span>Speech Studio</span>
-            <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium">
-              Phase 2 Durable Queue
+            <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium flex items-center space-x-1">
+              <Zap className="w-3 h-3 text-emerald-400" />
+              <span>Phase 3 Neural Engines</span>
             </span>
             {sseConnected && (
               <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 flex items-center space-x-1 font-mono">
@@ -257,16 +306,18 @@ export const StudioView: React.FC = () => {
             )}
           </h1>
           <p className="text-xs text-slate-400 mt-1">
-            Hàng đợi bền vững giao dịch SQLite WAL, cơ chế Fencing Token và tự khôi phục sau sự cố.
+            Tổng hợp giọng nói Neural trên máy trạm cục bộ (VieNeu-TTS CPU &amp; Qwen3-TTS RTX 3050 CUDA).
           </p>
         </div>
 
         {activeEngine && (
-          <div className="flex items-center space-x-2 text-xs text-slate-400 bg-slate-900 border border-slate-800 px-3.5 py-2 rounded-xl">
+          <div className="flex items-center space-x-2.5 text-xs text-slate-400 bg-slate-900 border border-slate-800 px-3.5 py-2 rounded-xl">
             <Cpu className="w-4 h-4 text-emerald-400" />
-            <span>Target: <strong className="text-slate-200 uppercase">{activeEngine.device_target}</strong></span>
+            <span>Đích: <strong className="text-slate-200 uppercase">{activeEngine.device_target}</strong></span>
             <span className="text-slate-700">|</span>
-            <span>Version: <strong className="text-slate-200">{activeEngine.version}</strong></span>
+            <span>Mẫu: <strong className="text-slate-200">{activeEngine.id === 'vieneu-tts' ? '48kHz' : activeEngine.id === 'qwen3-tts' ? '24kHz' : '44.1kHz'}</strong></span>
+            <span className="text-slate-700">|</span>
+            <span>Phiên bản: <strong className="text-slate-200">{activeEngine.version}</strong></span>
           </div>
         )}
       </div>
@@ -277,13 +328,16 @@ export const StudioView: React.FC = () => {
         <div className="lg:col-span-2 space-y-5">
           {/* Quick Prompts */}
           <div className="flex items-center space-x-2 overflow-x-auto pb-1 text-xs">
-            <span className="text-slate-500 flex-shrink-0 font-medium">Mẫu:</span>
+            <span className="text-slate-500 flex-shrink-0 font-medium">Mẫu câu:</span>
             {SAMPLE_PROMPTS.map((p, idx) => (
               <button
                 key={idx}
                 onClick={() => {
                   setText(p.text);
                   setSelectedLang(p.lang);
+                  if (p.engineHint && engines.some((e) => e.id === p.engineHint)) {
+                    handleEngineChange(p.engineHint);
+                  }
                 }}
                 className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 hover:border-slate-700 whitespace-nowrap transition-colors"
               >
@@ -316,12 +370,12 @@ export const StudioView: React.FC = () => {
             {submitting ? (
               <>
                 <RotateCw className="w-4 h-4 animate-spin" />
-                <span>Đang xếp hàng & xử lý âm thanh...</span>
+                <span>Đang xếp hàng &amp; tổng hợp âm thanh qua AI Worker...</span>
               </>
             ) : (
               <>
                 <Sparkles className="w-4 h-4" />
-                <span>Tạo giọng nói (Synthesize Speech)</span>
+                <span>Tạo giọng nói AI (Synthesize Speech)</span>
               </>
             )}
           </button>
@@ -358,7 +412,7 @@ export const StudioView: React.FC = () => {
                         </span>
                       )}
                     </h3>
-                    <p className="text-[11px] text-slate-400 font-mono">ID: {currentJob.id}</p>
+                    <p className="text-[11px] text-slate-400 font-mono">ID: {currentJob.id} · Engine: {currentJob.engine_id}</p>
                   </div>
                 </div>
 
@@ -423,9 +477,20 @@ export const StudioView: React.FC = () => {
               {/* Audio player if completed */}
               {currentJob.status === 'completed' && currentJob.artifact_id && (
                 <div className="pt-2 space-y-3">
-                  <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-300 text-xs flex items-center space-x-2">
-                    <span className="font-semibold uppercase tracking-wider text-[10px] bg-amber-500/20 px-2 py-0.5 rounded">Contract Test</span>
-                    <span>Âm thanh tổng hợp kiểm thử hợp đồng PCM 16-bit. Chưa nạp trọng số AI neural (VieNeu/Qwen3).</span>
+                  <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-emerald-300 text-xs flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <ShieldCheck className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                      <span>
+                        {currentJob.engine_id === 'vieneu-tts'
+                          ? 'Âm thanh neural tiếng Việt (48kHz WAV Hi-Fi) tạo bởi VieNeu-TTS v3 Turbo.'
+                          : currentJob.engine_id === 'qwen3-tts'
+                          ? 'Âm thanh neural tiếng Trung (24kHz WAV) tạo bởi Qwen3-TTS 0.6B trên RTX 3050 CUDA.'
+                          : 'Âm thanh tổng hợp kiểm thử hợp đồng (Mock Synthetic Audio).'}
+                      </span>
+                    </div>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300">
+                      {currentJob.engine_id === 'vieneu-tts' ? '48kHz' : currentJob.engine_id === 'qwen3-tts' ? '24kHz' : '44.1kHz'}
+                    </span>
                   </div>
                   <AudioPlayer artifactId={currentJob.artifact_id} />
                 </div>
@@ -434,7 +499,7 @@ export const StudioView: React.FC = () => {
           )}
         </div>
 
-        {/* Right Column: Engine, Voice, Speed Parameters */}
+        {/* Right Column: Engine, Mode, Voice, Speed Parameters */}
         <div className="space-y-6">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-6">
             <div className="flex items-center space-x-2 pb-4 border-b border-slate-800 text-sm font-semibold text-white">
@@ -450,17 +515,50 @@ export const StudioView: React.FC = () => {
               </label>
               <select
                 value={selectedEngineId}
-                onChange={(e) => setSelectedEngineId(e.target.value)}
+                onChange={(e) => handleEngineChange(e.target.value)}
                 disabled={loadingEngines || engines.length === 0}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-emerald-500 transition-colors"
               >
                 {engines.map((eng) => (
                   <option key={eng.id} value={eng.id}>
-                    {eng.name} ({eng.version})
+                    {eng.name} ({eng.version}) — {eng.device_target.toUpperCase()}
                   </option>
                 ))}
               </select>
             </div>
+
+            {/* Synthesis Mode (Preset Voice vs Voice Cloning) */}
+            {supportsCloning && (
+              <div className="space-y-2 pt-1">
+                <label className="block text-xs font-medium text-slate-300">Chế độ tổng hợp</label>
+                <div className="grid grid-cols-2 gap-2 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setSynthesisMode('preset')}
+                    className={`py-1.5 px-3 rounded-lg font-medium transition-all flex items-center justify-center space-x-1.5 ${
+                      synthesisMode === 'preset'
+                        ? 'bg-emerald-600 text-white shadow-sm'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <UserCheck className="w-3.5 h-3.5" />
+                    <span>Giọng mẫu</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSynthesisMode('clone')}
+                    className={`py-1.5 px-3 rounded-lg font-medium transition-all flex items-center justify-center space-x-1.5 ${
+                      synthesisMode === 'clone'
+                        ? 'bg-teal-600 text-white shadow-sm'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <Mic className="w-3.5 h-3.5" />
+                    <span>Nhân bản giọng</span>
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Language Select */}
             <div className="space-y-2">
@@ -481,25 +579,51 @@ export const StudioView: React.FC = () => {
               </select>
             </div>
 
-            {/* Voice Select */}
-            <div className="space-y-2">
-              <label className="block text-xs font-medium text-slate-300 flex items-center space-x-1.5">
-                <UserCheck className="w-3.5 h-3.5 text-slate-400" />
-                <span>Giọng đọc (Preset Voice)</span>
-              </label>
-              <select
-                value={selectedVoiceId}
-                onChange={(e) => setSelectedVoiceId(e.target.value)}
-                disabled={filteredVoices.length === 0}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-emerald-500 transition-colors"
-              >
-                {filteredVoices.map((v) => (
-                  <option key={v.id} value={v.id}>
-                    {v.name} ({v.gender})
-                  </option>
-                ))}
-              </select>
-            </div>
+            {/* Mode 1: Preset Voice Select */}
+            {synthesisMode === 'preset' ? (
+              <div className="space-y-2">
+                <label className="block text-xs font-medium text-slate-300 flex items-center space-x-1.5">
+                  <UserCheck className="w-3.5 h-3.5 text-slate-400" />
+                  <span>Giọng đọc ({filteredVoices.length} giọng có sẵn)</span>
+                </label>
+                <select
+                  value={selectedVoiceId}
+                  onChange={(e) => setSelectedVoiceId(e.target.value)}
+                  disabled={filteredVoices.length === 0}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-emerald-500 transition-colors"
+                >
+                  {filteredVoices.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.name} ({v.gender === 'male' ? 'Nam' : v.gender === 'female' ? 'Nữ' : v.gender})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : (
+              /* Mode 2: Voice Cloning Reference Audio Parameters */
+              <div className="space-y-3 p-3.5 bg-slate-950/70 border border-teal-500/20 rounded-xl">
+                <div className="flex items-center space-x-1.5 text-xs font-medium text-teal-400">
+                  <FileAudio className="w-3.5 h-3.5" />
+                  <span>Tệp âm thanh mẫu tham chiếu</span>
+                </div>
+                <input
+                  type="text"
+                  value={refAudioPath}
+                  onChange={(e) => setRefAudioPath(e.target.value)}
+                  placeholder="Đường dẫn file WAV (VD: D:/sample.wav)..."
+                  className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-teal-500"
+                />
+                <label className="flex items-center space-x-2 text-[11px] text-slate-300 cursor-pointer pt-1">
+                  <input
+                    type="checkbox"
+                    checked={denoiseRef}
+                    onChange={(e) => setDenoiseRef(e.target.checked)}
+                    className="rounded bg-slate-900 border-slate-700 text-teal-600 focus:ring-0"
+                  />
+                  <span>Tự động khử nhiễu mẫu âm thanh trước khi trích xuất embedding</span>
+                </label>
+              </div>
+            )}
 
             {/* Speed Slider */}
             <div className="space-y-2 pt-2">

@@ -116,6 +116,7 @@ class ApiClient {
     speed?: number;
     idempotency_key?: string;
     priority?: number;
+    parameters?: Record<string, any>;
   }): Promise<JobRecord> {
     return this.request<JobRecord>('/api/v1/jobs/speech', {
       method: 'POST',

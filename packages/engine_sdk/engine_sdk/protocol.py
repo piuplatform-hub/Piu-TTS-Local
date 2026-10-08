@@ -47,6 +47,7 @@ class HealthResponse(BaseModel):
     state: WorkerState = WorkerState.READY
     device: str = "cpu"
     memory_mb: Optional[int] = 0
+    vram_mb: Optional[int] = 0
 
 
 class InfoResponse(BaseModel):

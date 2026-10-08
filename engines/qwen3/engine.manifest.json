@@ -1,0 +1,56 @@
+{
+  "manifest_version": "1.0",
+  "engine_id": "qwen3-tts",
+  "name": "Qwen3-TTS 0.6B CustomVoice",
+  "version": "1.0.0",
+  "author": "Qwen Team, Alibaba Cloud",
+  "license": "Apache-2.0",
+  "description": "Neural Mandarin Chinese speech synthesis using Qwen3-TTS 0.6B CustomVoice on NVIDIA CUDA (bfloat16)",
+  "capabilities": [
+    "text_to_speech",
+    "speaker_selection"
+  ],
+  "supported_languages": [
+    "zh"
+  ],
+  "default_sample_rate": 24000,
+  "runtime": {
+    "entrypoint": "engines/qwen3/worker.py",
+    "python_version_min": "3.10",
+    "python_version_max": "3.12",
+    "virtualenv_path": "D:/AIVoiceStudioData/benchmarks/envs/qwen3_env"
+  },
+  "hardware_profile": {
+    "supported_devices": [
+      "gpu"
+    ],
+    "default_device": "gpu",
+    "estimated_vram_mb": 2200,
+    "estimated_ram_mb": 4096
+  },
+  "parameters_schema": {
+    "speaker": {
+      "type": "string",
+      "enum": [
+        "vivian",
+        "uncle_fu",
+        "serena",
+        "aiden",
+        "dylan",
+        "eric",
+        "ono_anna",
+        "ryan",
+        "sohee"
+      ],
+      "default": "vivian",
+      "description": "Built-in preset speaker character"
+    },
+    "speed": {
+      "type": "number",
+      "minimum": 0.5,
+      "maximum": 2.0,
+      "default": 1.0,
+      "description": "Speech rate multiplier"
+    }
+  }
+}

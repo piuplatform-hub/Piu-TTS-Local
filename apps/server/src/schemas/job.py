@@ -15,6 +15,7 @@ class TTSJobSubmitRequest(BaseModel):
     speed: float = Field(1.0, ge=0.25, le=4.0)
     idempotency_key: Optional[str] = Field(None, max_length=100)
     priority: int = Field(0, ge=-10, le=10)
+    parameters: Dict[str, Any] = Field(default_factory=dict)
 
 
 class JobResponse(BaseModel):

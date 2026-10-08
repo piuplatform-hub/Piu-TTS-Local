@@ -1,0 +1,86 @@
+{
+  "vieneu_tts": {
+    "engine_id": "vieneu-tts",
+    "worker_startup_sec": 0.32,
+    "runs": [
+      {
+        "prompt_key": "vi_short",
+        "char_count": 33,
+        "wall_time_sec": 8.332,
+        "audio_duration_sec": 1.76,
+        "sample_rate_hz": 48000,
+        "channels": 1,
+        "audio_size_bytes": 169004,
+        "rtf": 4.734,
+        "worker_rss_mb": 1184,
+        "worker_vram_mb": 0
+      },
+      {
+        "prompt_key": "vi_medium",
+        "char_count": 144,
+        "wall_time_sec": 4.512,
+        "audio_duration_sec": 6.8,
+        "sample_rate_hz": 48000,
+        "channels": 1,
+        "audio_size_bytes": 652844,
+        "rtf": 0.663,
+        "worker_rss_mb": 1541,
+        "worker_vram_mb": 0
+      },
+      {
+        "prompt_key": "vi_long",
+        "char_count": 244,
+        "wall_time_sec": 8.082,
+        "audio_duration_sec": 12.32,
+        "sample_rate_hz": 48000,
+        "channels": 1,
+        "audio_size_bytes": 1182764,
+        "rtf": 0.656,
+        "worker_rss_mb": 2433,
+        "worker_vram_mb": 0
+      }
+    ]
+  },
+  "qwen3_tts": {
+    "engine_id": "qwen3-tts",
+    "worker_startup_sec": 1.44,
+    "runs": [
+      {
+        "prompt_key": "zh_short",
+        "char_count": 10,
+        "wall_time_sec": 15.569,
+        "audio_duration_sec": 2.8,
+        "sample_rate_hz": 24000,
+        "channels": 1,
+        "audio_size_bytes": 134444,
+        "rtf": 5.56,
+        "worker_rss_mb": 1836,
+        "worker_vram_mb": 2065
+      },
+      {
+        "prompt_key": "zh_medium",
+        "char_count": 36,
+        "wall_time_sec": 9.652,
+        "audio_duration_sec": 5.92,
+        "sample_rate_hz": 24000,
+        "channels": 1,
+        "audio_size_bytes": 284204,
+        "rtf": 1.63,
+        "worker_rss_mb": 1841,
+        "worker_vram_mb": 2065
+      },
+      {
+        "prompt_key": "zh_long",
+        "char_count": 62,
+        "wall_time_sec": 27.188,
+        "audio_duration_sec": 16.72,
+        "sample_rate_hz": 24000,
+        "channels": 1,
+        "audio_size_bytes": 802604,
+        "rtf": 1.626,
+        "worker_rss_mb": 1848,
+        "worker_vram_mb": 2065
+      }
+    ]
+  }
+}

@@ -36,6 +36,16 @@ npm run build
 cd ../..
 ```
 
+### 2.3. Cài đặt Engine Adapter SDK vào các Môi trường Neural Cô lập (Phase 3)
+Cả hai môi trường AI độc lập cần được liên kết với `engine_sdk` để giao tiếp loopback HTTP:
+```powershell
+# 1. Cài đặt SDK vào môi trường VieNeu-TTS (CPU ONNX)
+D:\AIVoiceStudioData\benchmarks\envs\vieneu_env\Scripts\pip install -e packages/engine_sdk
+
+# 2. Cài đặt SDK vào môi trường Qwen3-TTS (GPU CUDA)
+D:\AIVoiceStudioData\benchmarks\envs\qwen3_env\Scripts\pip install -e packages/engine_sdk
+```
+
 ---
 
 ## 3. KHỞI CHẠY ỨNG DỤNG
@@ -85,17 +95,20 @@ Tách biệt hoàn toàn API Server và Durable Job Scheduler thành hai tiến 
 
 Chạy kiểm thử riêng từng module:
 ```powershell
-# Chỉ kiểm thử hợp đồng Mock Engine
+# Kiểm thử hợp đồng toàn bộ Engine (Mock, VieNeu, Qwen3)
 .venv\Scripts\pytest -v tests/contract/
 
-# Kiểm thử hàng đợi bền vững
-.venv\Scripts\pytest -v tests/integration/test_durable_jobs.py
+# Kiểm thử Pre-flight Gate 6 điểm bắt buộc Phase 3
+.venv\Scripts\pytest -v tests/integration/test_phase3_preflight.py
 
-# Kiểm thử khả năng chịu lỗi sự cố và sao lưu WAL
-.venv\Scripts\pytest -v tests/integration/test_process_resilience.py
+# Kiểm thử tích hợp đầu cuối Phase 3 (VieNeu 48kHz, Qwen3 24kHz, Voice Cloning, Concurrency)
+.venv\Scripts\pytest -v tests/integration/test_phase3_integration.py
 
-# Kiểm thử giao diện trình duyệt thực tế E2E Playwright
-.venv\Scripts\pytest -v tests/e2e/test_browser_e2e.py
+# Kiểm thử trình duyệt thực tế Playwright trên Google Chrome (Phase 3)
+.venv\Scripts\pytest -v tests/e2e/test_phase3_browser_e2e.py
+
+# Chạy kịch bản đo đạc hiệu năng thực tế phần cứng (Benchmark RTF & Telemetry)
+.venv\Scripts\python scripts/benchmark_phase3_metrics.py
 ```
 
 ---

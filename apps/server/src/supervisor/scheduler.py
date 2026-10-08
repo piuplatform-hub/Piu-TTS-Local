@@ -173,7 +173,7 @@ class DurableJobScheduler:
                 language=payload.get("language", "vi"),
                 voice_id=payload.get("voice_id"),
                 speed=float(payload.get("speed", 1.0)),
-                output_format="wav",
+                parameters=payload.get("parameters", {}),
             )
 
             # Update progress percent to 60%

@@ -1,5 +1,17 @@
 # Documentation changelog
 
+## 2026-10-08 — Phase 3 Production AI Engine Adapters & End-to-End Inference Integration Completed
+
+- **Mandatory Pre-Flight Gate Verification:** Passed all 6 pre-flight gate tests (`test_phase3_preflight.py` in 4.03s), verifying dual-scheduler conflict prevention, standalone runner execution, crash recovery with at-least-once semantics, cross-process GPU slot atomicity, and SSE replay across server restarts.
+- **Production Engine A (VieNeu-TTS v3 Turbo):** Implemented production adapter in `engines/vieneu/` running isolated in Python 3.12 (`vieneu_env`) on CPU via ONNX Runtime FP32. Supports 22 preset Vietnamese voices, zero-shot voice cloning with reference audio embedding extraction, and 48kHz WAV audio export. Verified with contract tests (`test_vieneu_engine.py` passed in 23.13s).
+- **Production Engine B (Qwen3-TTS 0.6B CustomVoice):** Implemented production adapter in `engines/qwen3/` running isolated in Python 3.12 (`qwen3_env`) on GPU NVIDIA GeForce RTX 3050 (6GB VRAM, `bfloat16`). Supports 9 built-in speakers for Mandarin Chinese, 24kHz WAV export, CUDA OOM recovery, and strictly rejects voice cloning. Verified with contract tests (`test_qwen3_engine.py` passed in 78.74s).
+- **Core Pipeline Upgrades:** Added `parameters: Dict[str, Any]` to `TTSJobSubmitRequest`, forwarded parameters through `DurableJobScheduler`, upgraded `ProcessSupervisor` to resolve absolute `virtualenv_path`, and increased `EngineWorkerClient` timeout to 180s.
+- **Frontend UI Phase 3 Upgrade:** Upgraded `StudioView.tsx` with dynamic AI Engine dropdown, target device indicators (CPU vs GPU CUDA), preset voices, zero-shot voice cloning mode with reference WAV input and denoise toggle, and real-time audio playback for 24kHz and 48kHz WAV files. Production bundle cleanly rebuilt with 0 errors.
+- **End-to-End Integration Tests:** Implemented `test_phase3_integration.py` passing 100% (4/4 passed in 67.44s) covering VieNeu 48kHz pipeline, VieNeu voice cloning, Qwen3 24kHz pipeline on RTX 3050, and CPU/GPU concurrency and slot isolation.
+- **Real Chrome Browser E2E Playwright:** Implemented `test_phase3_browser_e2e.py` passing 100% in 20.17s; generated 6 authentic screenshots in `docs/reports/screenshots/` (0 console errors, 0 network failures).
+- **Hardware Telemetry & Runtime Benchmarking:** Executed `scripts/benchmark_phase3_metrics.py`. Measured VieNeu warm RTF = 0.66 (faster than real-time), Qwen3 warm RTF = 1.63 (slower than real-time), Qwen3 allocated VRAM = 2,065 MB.
+- **Published Deliverables:** `PHASE_03_ENGINE_INTEGRATION.md`, `PHASE_03_RUNTIME_METRICS.md`, `PHASE_03_IMPLEMENTATION_REPORT.md`, `PHASE_03_TEST_EVIDENCE.md`, and `PHASE_03_KNOWN_LIMITATIONS.md`.
+
 ## 2026-10-08 — Phase 2 Release Gate R1 Remediations Verified (Gate PASS)
 
 - **P0 Security Remediated:** Eliminated JWT token query string parameter in SSE endpoint (`CWE-598`). Replaced browser `EventSource` with custom native `fetch()` streaming reader using `Authorization: Bearer` and `Last-Event-ID` HTTP headers in `apps/web/src/api/client.ts`. Backend `apps/server/src/api/v1/jobs.py` strictly rejects `?token=...` with HTTP `400 Bad Request` (`QUERY_AUTH_PROHIBITED`).

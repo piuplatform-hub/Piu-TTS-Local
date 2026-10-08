@@ -137,7 +137,10 @@ class ProcessSupervisor:
 
         python_bin = sys.executable
         if manifest.runtime.virtualenv_path:
-            venv_python = workspace_root / manifest.runtime.virtualenv_path / "Scripts" / "python.exe"
+            v_path = Path(manifest.runtime.virtualenv_path)
+            if not v_path.is_absolute():
+                v_path = workspace_root / v_path
+            venv_python = v_path / "Scripts" / "python.exe"
             if venv_python.exists():
                 python_bin = str(venv_python)
 
