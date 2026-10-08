@@ -60,8 +60,11 @@ export const StudioView: React.FC = () => {
 
   // Phase 3: Voice Cloning Controls
   const [synthesisMode, setSynthesisMode] = useState<'preset' | 'clone'>('preset');
-  const [refAudioPath, setRefAudioPath] = useState<string>('');
+  const [refAudioFile, setRefAudioFile] = useState<File | null>(null);
+  const [uploadedAssetId, setUploadedAssetId] = useState<string>('');
+  const [voiceConsent, setVoiceConsent] = useState<boolean>(false);
   const [denoiseRef, setDenoiseRef] = useState<boolean>(true);
+  const [existingAssets, setExistingAssets] = useState<any[]>([]);
 
   const [loadingEngines, setLoadingEngines] = useState<boolean>(true);
   const [submitting, setSubmitting] = useState<boolean>(false);
@@ -151,6 +154,14 @@ export const StudioView: React.FC = () => {
     }
   }, [selectedLang, selectedEngineId, filteredVoices, selectedVoiceId]);
 
+  useEffect(() => {
+    if (synthesisMode === 'clone') {
+      api.listReferenceAudios()
+        .then(setExistingAssets)
+        .catch((e) => console.error('Failed to load user reference audios', e));
+    }
+  }, [synthesisMode]);
+
   const attachJobListener = (jobId: string) => {
     if (sseCleanupRef.current) {
       sseCleanupRef.current();
@@ -221,11 +232,28 @@ export const StudioView: React.FC = () => {
     const parameters: Record<string, any> = {};
 
     if (synthesisMode === 'clone' && supportsCloning) {
-      if (!refAudioPath.trim()) {
-        setError('Vui lòng nhập đường dẫn tệp âm thanh WAV mẫu để nhân bản giọng nói.');
+      if (!voiceConsent) {
+        setError('Bạn phải xác nhận đã có sự đồng ý hợp pháp của chủ giọng nói để nhân bản giọng đọc.');
         return;
       }
-      parameters.ref_audio = refAudioPath.trim();
+
+      let targetAssetId = uploadedAssetId;
+
+      if (refAudioFile) {
+        try {
+          const uploadRes = await api.uploadReferenceAudio(refAudioFile, voiceConsent);
+          targetAssetId = uploadRes.asset_id;
+          setUploadedAssetId(targetAssetId);
+        } catch (upErr: any) {
+          setError(upErr.message || 'Lỗi tải lên tệp âm thanh mẫu tham chiếu.');
+          return;
+        }
+      } else if (!targetAssetId) {
+        setError('Vui lòng chọn hoặc tải lên tệp âm thanh WAV mẫu để nhân bản giọng nói.');
+        return;
+      }
+
+      parameters.reference_asset_id = targetAssetId;
       parameters.denoise = denoiseRef;
     }
 
@@ -604,16 +632,60 @@ export const StudioView: React.FC = () => {
               <div className="space-y-3 p-3.5 bg-slate-950/70 border border-teal-500/20 rounded-xl">
                 <div className="flex items-center space-x-1.5 text-xs font-medium text-teal-400">
                   <FileAudio className="w-3.5 h-3.5" />
-                  <span>Tệp âm thanh mẫu tham chiếu</span>
+                  <span>Tệp âm thanh mẫu tham chiếu (WAV 0.5s - 30s)</span>
                 </div>
+                
                 <input
-                  type="text"
-                  value={refAudioPath}
-                  onChange={(e) => setRefAudioPath(e.target.value)}
-                  placeholder="Đường dẫn file WAV (VD: D:/sample.wav)..."
-                  className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-teal-500"
+                  type="file"
+                  accept=".wav"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0] || null;
+                    setRefAudioFile(f);
+                    if (f) setUploadedAssetId('');
+                  }}
+                  className="block w-full text-xs text-slate-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-teal-600/20 file:text-teal-300 hover:file:bg-teal-600/30 cursor-pointer"
                 />
-                <label className="flex items-center space-x-2 text-[11px] text-slate-300 cursor-pointer pt-1">
+
+                {refAudioFile && (
+                  <p className="text-[11px] text-teal-300/80 font-mono">
+                    Đã chọn: {refAudioFile.name} ({(refAudioFile.size / 1024).toFixed(1)} KB)
+                  </p>
+                )}
+
+                {existingAssets.length > 0 && (
+                  <div className="space-y-1 pt-1">
+                    <label className="text-[11px] text-slate-400">Hoặc chọn mẫu âm thanh đã tải lên trước:</label>
+                    <select
+                      value={uploadedAssetId}
+                      onChange={(e) => {
+                        setUploadedAssetId(e.target.value);
+                        setRefAudioFile(null);
+                      }}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-slate-200"
+                    >
+                      <option value="">-- Chọn từ thư viện mẫu --</option>
+                      {existingAssets.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.filename} ({a.duration_seconds}s, {a.sample_rate}Hz)
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                <label className="flex items-start space-x-2 text-[11px] text-slate-300 cursor-pointer pt-1 bg-amber-500/5 p-2 rounded-lg border border-amber-500/10">
+                  <input
+                    type="checkbox"
+                    checked={voiceConsent}
+                    onChange={(e) => setVoiceConsent(e.target.checked)}
+                    className="mt-0.5 rounded bg-slate-900 border-slate-700 text-teal-600 focus:ring-0"
+                  />
+                  <span className="text-amber-300/90 font-medium">
+                    Tôi xác nhận đã có sự đồng ý hợp pháp của chủ giọng nói để nhân bản giọng đọc này (Voice-Use Consent)
+                  </span>
+                </label>
+
+                <label className="flex items-center space-x-2 text-[11px] text-slate-300 cursor-pointer pt-0.5">
                   <input
                     type="checkbox"
                     checked={denoiseRef}

@@ -152,6 +152,44 @@ class ApiClient {
     return `/api/v1/artifacts/${artifactId}/file`;
   }
 
+  async uploadReferenceAudio(file: File, voiceUseConsent: boolean): Promise<{ asset_id: string; message: string; asset: any }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('voice_use_consent', String(voiceUseConsent));
+
+    const headers: Record<string, string> = {};
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`;
+    }
+
+    const res = await fetch('/api/v1/assets/reference-audio', {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+
+    if (!res.ok) {
+      let problem: ApiProblemError;
+      try {
+        problem = await res.json();
+      } catch {
+        problem = {
+          title: res.statusText,
+          status: res.status,
+          detail: 'Failed to upload reference audio.',
+          code: `HTTP_${res.status}`,
+        };
+      }
+      throw new ApiError(problem);
+    }
+
+    return res.json();
+  }
+
+  async listReferenceAudios(): Promise<any[]> {
+    return this.request<any[]>('/api/v1/assets/reference-audio');
+  }
+
   /**
    * Connects to Server-Sent Events (SSE) stream using Fetch API and ReadableStream
    * with standard 'Authorization: Bearer <token>' header. Tokens are NEVER placed in URLs (CWE-598).

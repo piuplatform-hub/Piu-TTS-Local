@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import database
 from ..core.errors import AppException
+from ..models.asset import ReferenceAssetRecord
 from ..models.engine import EngineRecord
 from ..models.job import JobRecord
 from ..models.user import User
@@ -32,6 +33,178 @@ class FencingTokenError(AppException):
 
 
 class DurableQueueService:
+    @staticmethod
+    async def _validate_and_sanitize_request(
+        db: AsyncSession,
+        engine_rec: EngineRecord,
+        req: TTSJobSubmitRequest,
+        current_user: User,
+    ) -> Dict[str, Any]:
+        manifest_dict = engine_rec.manifest_data or {}
+        capabilities = engine_rec.capabilities or []
+
+        # A. Language Validation
+        supported_langs = manifest_dict.get("supported_languages", ["vi"])
+        if req.language not in supported_langs:
+            raise AppException(
+                status_code=422,
+                title="Unsupported Language",
+                detail=f"Engine '{req.engine_id}' does not support language '{req.language}'. Supported: {supported_langs}",
+                code="UNSUPPORTED_LANGUAGE",
+            )
+
+        # B. Voice Selection Validation
+        if req.voice_id:
+            valid_voices = set()
+            if req.engine_id == "vieneu-tts":
+                valid_voices = {
+                    "hai_dang", "mai_anh", "truc_ly", "thien_minh", "thuy_dung",
+                    "thien_tam_duc", "ngoc_huyen", "quang_son", "ngoc_tran", "minh_duc",
+                    "thai_son", "xuan_vinh", "ngoc_linh", "doan_trang", "thuc_doan",
+                    "minh_triet", "my_duyen", "quynh_anh", "duc_tri", "kim_thanh",
+                    "adam", "quoc_tuan"
+                }
+            elif req.engine_id == "qwen3-tts":
+                valid_voices = {
+                    "vivian", "uncle_fu", "serena", "aiden", "dylan",
+                    "eric", "ono_anna", "ryan", "sohee"
+                }
+            elif req.engine_id == "mock-tts":
+                valid_voices = {"vi-female-1", "vi-male-1", "en-female-1", "zh-female-1"}
+
+            if valid_voices and req.voice_id.lower() not in valid_voices:
+                raise AppException(
+                    status_code=422,
+                    title="Unsupported Voice",
+                    detail=f"Voice '{req.voice_id}' is not supported by engine '{req.engine_id}'. Valid voices: {sorted(list(valid_voices))}",
+                    code="UNSUPPORTED_VOICE",
+                )
+
+        # C. Parameters Schema & Capabilities Validation
+        params_schema = manifest_dict.get("parameters_schema", {})
+        input_params = dict(req.parameters or {})
+        sanitized_params = {}
+
+        # 1. Check for Voice Cloning request and capability
+        has_cloning = "reference_asset_id" in input_params or "ref_audio" in input_params
+        if has_cloning:
+            if "voice_cloning" not in capabilities:
+                raise AppException(
+                    status_code=422,
+                    title="Voice Cloning Not Supported",
+                    detail=f"Engine '{req.engine_id}' does not support voice cloning capabilities.",
+                    code="VOICE_CLONING_NOT_SUPPORTED",
+                )
+
+            # Prevent direct client-supplied host filesystem paths (Path Traversal / Host Injection)
+            raw_ref = input_params.get("ref_audio")
+            raw_asset_id = input_params.get("reference_asset_id")
+
+            if raw_ref and any(c in str(raw_ref) for c in ("/", "\\", "..", ":")):
+                raise AppException(
+                    status_code=422,
+                    title="Filesystem Path Injection Prohibited",
+                    detail="Arbitrary client-supplied filesystem paths are prohibited. You must upload the audio reference via /api/v1/assets/reference-audio and provide reference_asset_id.",
+                    code="FILESYSTEM_PATH_INJECTION_PROHIBITED",
+                )
+
+            effective_asset_id = raw_asset_id or raw_ref
+            if not effective_asset_id:
+                raise AppException(
+                    status_code=422,
+                    title="Missing Reference Asset",
+                    detail="Voice cloning requires a valid reference_asset_id.",
+                    code="MISSING_REFERENCE_ASSET",
+                )
+
+            # Query ReferenceAssetRecord from DB
+            asset_stmt = select(ReferenceAssetRecord).where(ReferenceAssetRecord.id == str(effective_asset_id))
+            asset_res = await db.execute(asset_stmt)
+            asset_rec = asset_res.scalar_one_or_none()
+
+            if not asset_rec:
+                raise AppException(
+                    status_code=404,
+                    title="Reference Asset Not Found",
+                    detail=f"Reference audio asset '{effective_asset_id}' does not exist.",
+                    code="REFERENCE_ASSET_NOT_FOUND",
+                )
+
+            # Per-user ownership check
+            if asset_rec.user_id != current_user.id and getattr(current_user, "role", "user") != "admin":
+                raise AppException(
+                    status_code=403,
+                    title="Access Denied",
+                    detail="You do not have authorization to access or use this reference audio asset.",
+                    code="FORBIDDEN_ASSET_ACCESS",
+                )
+
+            # Explicit consent check
+            if not asset_rec.voice_use_consent:
+                raise AppException(
+                    status_code=400,
+                    title="Voice Use Consent Required",
+                    detail="The referenced audio sample lacks verified voice-use consent.",
+                    code="VOICE_CONSENT_REQUIRED",
+                )
+
+            # Resolve to verified safe server path for the isolated worker
+            sanitized_params["ref_audio"] = asset_rec.file_path
+            sanitized_params["reference_asset_id"] = asset_rec.id
+
+        # 2. Allowed parameter keys for this engine
+        allowed_keys = set(params_schema.keys())
+        if "voice_cloning" in capabilities:
+            allowed_keys.add("reference_asset_id")
+
+        for key in input_params.keys():
+            if key not in allowed_keys:
+                raise AppException(
+                    status_code=422,
+                    title="Unsupported Parameter",
+                    detail=f"Parameter '{key}' is not recognized or supported by engine '{req.engine_id}'. Allowed: {sorted(list(allowed_keys))}",
+                    code="UNSUPPORTED_PARAMETER",
+                )
+
+        # D. Validate other parameters
+        if "speed" in input_params:
+            speed_val = input_params["speed"]
+            if not isinstance(speed_val, (int, float)) or not (0.25 <= float(speed_val) <= 4.0):
+                raise AppException(
+                    status_code=422,
+                    title="Invalid Speed",
+                    detail=f"Speed parameter must be a number between 0.25 and 4.0, received: {speed_val}",
+                    code="INVALID_PARAMETER_VALUE",
+                )
+            sanitized_params["speed"] = float(speed_val)
+
+        if "denoise" in input_params:
+            denoise_val = input_params["denoise"]
+            if not isinstance(denoise_val, bool):
+                raise AppException(
+                    status_code=422,
+                    title="Invalid Denoise Setting",
+                    detail="Denoise parameter must be a boolean (true or false).",
+                    code="INVALID_PARAMETER_VALUE",
+                )
+            sanitized_params["denoise"] = denoise_val
+
+        if "speaker" in input_params:
+            speaker_val = str(input_params["speaker"]).lower()
+            allowed_speakers = params_schema.get("speaker", {}).get("enum", [])
+            if allowed_speakers and speaker_val not in [s.lower() for s in allowed_speakers]:
+                raise AppException(
+                    status_code=422,
+                    title="Invalid Speaker",
+                    detail=f"Speaker '{speaker_val}' is not valid for engine '{req.engine_id}'. Allowed: {allowed_speakers}",
+                    code="INVALID_PARAMETER_VALUE",
+                )
+            sanitized_params["speaker"] = speaker_val
+
+        payload = req.model_dump()
+        payload["parameters"] = sanitized_params
+        return payload
+
     @staticmethod
     async def submit_speech_job(
         db: AsyncSession,
@@ -77,16 +250,13 @@ class DurableQueueService:
                 code="ENGINE_NOT_FOUND",
             )
 
-        # 3. Language Capability Validation
-        manifest_dict = engine_rec.manifest_data or {}
-        supported_langs = manifest_dict.get("supported_languages", ["vi"])
-        if req.language not in supported_langs:
-            raise AppException(
-                status_code=422,
-                title="Unsupported Language",
-                detail=f"Engine '{req.engine_id}' does not support language '{req.language}'. Supported: {supported_langs}",
-                code="UNSUPPORTED_LANGUAGE",
-            )
+        # 3. Comprehensive Engine Capability & Parameter Contract Validation
+        sanitized_payload = await DurableQueueService._validate_and_sanitize_request(
+            db=db,
+            engine_rec=engine_rec,
+            req=req,
+            current_user=current_user,
+        )
 
         # Determine resource type
         device_target = (engine_rec.device_target or "cpu").lower()
@@ -106,7 +276,7 @@ class DurableQueueService:
             resource_type=resource_type,
             attempt_count=0,
             max_retries=3,
-            payload_data=req.model_dump(),
+            payload_data=sanitized_payload,
             queued_at=datetime.now(timezone.utc),
         )
         db.add(job)

@@ -11,8 +11,8 @@ Tài liệu này ghi nhận trung thực các hạn chế kỹ thuật, đặc t
 ## 1. HIỆU NĂNG SUY LUẬN & TỐC ĐỘ THỜI GIAN THỰC (RTF)
 
 1. **Qwen3-TTS 0.6B trên RTX 3050 KHÔNG ĐẠT tốc độ thời gian thực (RTF = 1.63 > 1.0)**:
-   - Các phép đo lường thực tế trên card đồ họa NVIDIA GeForce RTX 3050 (6GB VRAM, 2048 CUDA cores) ghi nhận hệ số Real-Time Factor (RTF) của Qwen3-TTS đạt trung bình **1.63**.
-   - Cụ thể: Để tổng hợp một câu tiếng Trung có độ dài âm thanh 10 giây, GPU cần khoảng 16.3 giây tính toán liên tục.
+   - Các phép đo lường thực tế trên card đồ họa NVIDIA GeForce RTX 3050 (6GB VRAM, 2048 CUDA cores) ghi nhận hệ số Real-Time Factor (RTF) của Qwen3-TTS đạt dao động từ **1.63 đến 2.48** (tùy thuộc độ dài văn bản).
+   - Cụ thể: Để tổng hợp một câu tiếng Trung có độ dài âm thanh 12.4 giây, GPU cần khoảng 30.78 giây tính toán liên tục (RTF = 2.48).
    - **Kết luận:** Đây là đặc tính kiến trúc tự hồi quy (Autoregressive Transformer) kết hợp vocoder nén âm thanh. Trên phần cứng hiện tại, Qwen3-TTS chỉ phù hợp cho tác vụ tổng hợp bất đồng bộ (Offline/Asynchronous batch synthesis), **không thể sử dụng làm hệ thống đàm thoại thời gian thực (Real-time conversational streaming)**.
 2. **Cold Start Latency**:
    - VieNeu-TTS mất ~8.3 giây ở lần gọi đầu tiên để nạp các tệp mô hình ONNX FP32 vào RAM máy tính.
@@ -35,9 +35,19 @@ Tài liệu này ghi nhận trung thực các hạn chế kỹ thuật, đặc t
 ## 3. GIỚI HẠN PHẦN CỨNG & QUẢN TRỊ BỘ NHỚ VRAM
 
 1. **Nguy cơ CUDA Out-of-Memory trên GPU 6GB VRAM**:
-   - Card đồ họa RTX 3050 chỉ có 6GB VRAM vật lý. PyTorch cấp phát tĩnh ~2.06GB cho mô hình Qwen3-TTS 0.6B. Hệ điều hành Windows DWM tiêu thụ nền ~0.8 - 1.2GB. Dung lượng VRAM còn trống chỉ khoảng 2.7GB.
+   - Card đồ họa RTX 3050 chỉ có 6GB VRAM vật lý. PyTorch cấp phát tĩnh ~2.06GB cho mô hình Qwen3-TTS 0.6B. Hệ điều hành Windows DWM tiêu thụ nền ~0.8 - 1.2GB. Dung lượng VRAM còn trống chỉ khoảng 2.6 - 2.7GB.
    - Do đó, hệ thống bắt buộc phải áp đặt quy tắc **`max_gpu_slots = 1`**.
    - Tuyệt đối không được nâng cấp mô hình lên bản Qwen3 1.5B hoặc 7B trên cấu hình máy trạm này vì chắc chắn sẽ gây lỗi tràn bộ nhớ CUDA OOM sập tiến trình.
 2. **Độ dài văn bản đơn lẻ (Sentence Length Limits)**:
    - VieNeu-TTS hoạt động tối ưu nhất với các câu văn có độ dài dưới 300 ký tự. Với các văn bản quá dài, chất lượng phát âm ở cuối câu có xu hướng giảm nhẹ hoặc tăng mức chiếm dụng RAM lên trên 2.5GB.
    - Tính năng tự động phân đoạn văn bản thông minh (Text Chunking / Sentence Boundary Detection) và ghép nối âm thanh không gian (Audio Stitching) sẽ được triển khai chính thức trong Phase 4 (Long-form Synthesis).
+
+---
+
+## 4. AN NINH DỮ LIỆU & BẢN QUYỀN GIỌNG NÓI (SECURITY & COMPLIANCE)
+
+1. **Khắc phục triệt để nguy cơ Path Traversal / Injection**:
+   - Tại cổng nghiệm thu Phase 3 Acceptance Gate, hệ thống đã cấm hoàn toàn client truyền trực tiếp chuỗi đường dẫn tệp (`ref_audio: "D:/..."`).
+   - Mọi tệp mẫu phải được tải lên qua API xác thực `POST /api/v1/assets/reference-audio`, kiểm định header RIFF/WAVE (0.5s - 30s, <=15MB), lưu trữ UUID nội bộ và kiểm tra quyền sở hữu người dùng (chống truy cập chéo).
+2. **Ràng buộc pháp lý bản quyền giọng đọc (Voice-Use Consent)**:
+   - Hệ thống bắt buộc người dùng cam kết bản quyền hợp pháp trước khi tổng hợp giọng nhân bản. Mọi yêu cầu thiếu consent đều bị từ chối cấp tốc tại API layer.

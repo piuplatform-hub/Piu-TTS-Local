@@ -158,7 +158,18 @@ async def test_vieneu_tts_zero_shot_voice_cloning(client, running_production_eng
             frames.extend(struct.pack("<h", val))
         wf.writeframes(frames)
 
-    # Submit voice cloning job
+    # 1. Upload reference audio securely via API with explicit consent
+    ref_bytes = ref_wav_path.read_bytes()
+    upload_res = await client.post(
+        "/api/v1/assets/reference-audio",
+        headers=headers,
+        files={"file": ("sample.wav", ref_bytes, "audio/wav")},
+        data={"voice_use_consent": "true"},
+    )
+    assert upload_res.status_code == 201
+    asset_id = upload_res.json()["asset_id"]
+
+    # 2. Submit voice cloning job using authorized reference_asset_id
     submit_res = await client.post(
         "/api/v1/jobs/speech",
         headers=headers,
@@ -167,7 +178,7 @@ async def test_vieneu_tts_zero_shot_voice_cloning(client, running_production_eng
             "engine_id": "vieneu-tts",
             "language": "vi",
             "parameters": {
-                "ref_audio": str(ref_wav_path),
+                "reference_asset_id": asset_id,
                 "denoise": False,
             },
             "idempotency_key": "vieneu-clone-001",

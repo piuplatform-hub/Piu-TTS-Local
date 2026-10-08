@@ -194,6 +194,11 @@ class ProcessSupervisor:
             return worker.client
         return None
 
+    def stop_worker(self, engine_id: str):
+        worker = self._workers.pop(engine_id, None)
+        if worker:
+            worker.terminate()
+
     def shutdown_all(self):
         for worker in self._workers.values():
             worker.terminate()

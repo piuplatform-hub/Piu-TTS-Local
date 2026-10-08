@@ -223,9 +223,19 @@ class Qwen3WorkerHandler(BaseHTTPRequestHandler):
                 )
                 return
 
+            # Check for illegal voice cloning attempt
+            params = body.get("parameters", {})
+            if "ref_audio" in params or "reference_asset_id" in params:
+                self._send_rfc9457_error(
+                    422,
+                    "Unsupported Capability",
+                    "VOICE_CLONING_NOT_SUPPORTED",
+                    "Qwen3-TTS 0.6B CustomVoice does not support voice cloning.",
+                )
+                return
+
             # Check voice/speaker
             voice_id = body.get("voice_id", "vivian").lower()
-            params = body.get("parameters", {})
             speaker_param = params.get("speaker", voice_id).lower()
 
             if speaker_param not in SPEAKER_IDS:

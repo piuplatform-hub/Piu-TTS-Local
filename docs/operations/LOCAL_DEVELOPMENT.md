@@ -88,27 +88,16 @@ Tách biệt hoàn toàn API Server và Durable Job Scheduler thành hai tiến 
 
 ## 4. CHẠY BỘ KIỂM THỬ TỰ ĐỘNG (TEST SUITE)
 
-Để chạy kiểm thử toàn bộ hệ thống (Hợp đồng Engine, Xác thực Onboarding, Luồng Job, Chịu lỗi Supervisor, Phục vụ SPA, Khả năng chịu lỗi đa tiến trình):
-```powershell
-.venv\Scripts\pytest -v
-```
+# --- CHIẾN LƯỢC KIỂM THỬ 2 TẦNG (TWO-TIER TEST STRATEGY) ---
 
-Chạy kiểm thử riêng từng module:
-```powershell
-# Kiểm thử hợp đồng toàn bộ Engine (Mock, VieNeu, Qwen3)
-.venv\Scripts\pytest -v tests/contract/
+# Tầng 1: Fast CI Suite (Không cần GPU, thực thi < 60s)
+.venv\Scripts\pytest -v tests/contract/test_mock_engine.py tests/integration/test_auth_api.py tests/integration/test_durable_jobs.py tests/integration/test_jobs_api.py tests/integration/test_migrations.py tests/integration/test_process_resilience.py tests/integration/test_security_hardened.py tests/integration/test_spa_serving.py tests/integration/test_supervisor_resilience.py tests/integration/test_voice_cloning_security.py
 
-# Kiểm thử Pre-flight Gate 6 điểm bắt buộc Phase 3
-.venv\Scripts\pytest -v tests/integration/test_phase3_preflight.py
+# Tầng 2: Hardware Integration Suite (Nạp model thực tế trên CPU & GPU CUDA)
+.venv\Scripts\pytest -v tests/contract/test_vieneu_engine.py tests/contract/test_qwen3_engine.py tests/integration/test_phase3_preflight.py tests/integration/test_phase3_integration.py tests/e2e/test_phase3_browser_e2e.py
 
-# Kiểm thử tích hợp đầu cuối Phase 3 (VieNeu 48kHz, Qwen3 24kHz, Voice Cloning, Concurrency)
-.venv\Scripts\pytest -v tests/integration/test_phase3_integration.py
-
-# Kiểm thử trình duyệt thực tế Playwright trên Google Chrome (Phase 3)
-.venv\Scripts\pytest -v tests/e2e/test_phase3_browser_e2e.py
-
-# Chạy kịch bản đo đạc hiệu năng thực tế phần cứng (Benchmark RTF & Telemetry)
-.venv\Scripts\python scripts/benchmark_phase3_metrics.py
+# Sinh trọn bộ gói âm thanh nghiệm thu và đo lường telemetry phần cứng:
+.venv\Scripts\python scripts/generate_acceptance_audio.py
 ```
 
 ---
@@ -118,14 +107,15 @@ Chạy kiểm thử riêng từng module:
 Mặc định, hệ thống lưu trữ dữ liệu tại `D:\AIVoiceStudioData` (hoặc tự động chuyển về `./data` nếu ổ đĩa không ghi được):
 ```
 D:\AIVoiceStudioData/
-├── studio.db           # SQLite Database ở chế độ WAL Mode
-├── studio.db-wal       # File ghi trước nhật ký WAL
-├── studio.db-shm       # File bộ nhớ chia sẻ WAL
-├── .bootstrap_token    # Token một lần (tự động xóa sau khi khởi tạo thành công)
-├── artifacts/          # Thư mục lưu trữ các file âm thanh WAV đã sinh
-│   └── <uuid>.wav
-├── models/             # Thư mục dành cho trọng số AI trong tương lai
-└── backups/            # Thư mục lưu trữ bản sao lưu cơ sở dữ liệu
+├── studio.db                 # SQLite Database ở chế độ WAL Mode
+├── studio.db-wal             # File ghi trước nhật ký WAL
+├── studio.db-shm             # File bộ nhớ chia sẻ WAL
+├── .bootstrap_token          # Token một lần (tự động xóa sau khi khởi tạo thành công)
+├── artifacts/                # Thư mục lưu trữ các file âm thanh WAV đã sinh (<uuid>.wav)
+├── reference_assets/         # Tệp âm thanh mẫu tham chiếu cho Voice Cloning (có kiểm định)
+├── acceptance_audio_phase3/  # 4 tệp WAV nghiệm thu chính thức và acceptance_manifest.json
+├── models/                   # Thư mục dành cho trọng số AI trong tương lai
+└── backups/                  # Thư mục lưu trữ bản sao lưu cơ sở dữ liệu
 ```
 
 Để thay đổi đường dẫn lưu trữ dữ liệu, sao chép `.env.example` thành `.env` và điều chỉnh biến:

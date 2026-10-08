@@ -1,5 +1,25 @@
 # Documentation changelog
 
+## 2026-10-08 — Phase 3 Acceptance Gate: Real Engine Audit, Secure Audio Pipeline & Full Regression Verified (Gate PASS)
+
+- **Remediated Secure Voice Cloning Pipeline:** Eliminated server filesystem path injection vectors (`ref_audio`). Implemented `ReferenceAssetRecord` in `apps/server/src/models/asset.py` with Alembic migration `20261008_0003_reference_assets.py`. Created `AssetService` validating RIFF/WAVE headers (0.5s–30s duration, <=15MB), enforcing UUID server paths, cross-user authorization isolation (`403 Forbidden`), and requiring explicit user legal consent (`voice_use_consent`).
+- **Engine Parameter Contract Hardening:** `DurableQueueService` strictly validates requested engine capabilities (`VOICE_CLONING_NOT_SUPPORTED`), manifests `parameters_schema` keys (`UNSUPPORTED_PARAMETER`), range limits for `speed` and enum for Qwen3 `speaker` (`INVALID_PARAMETER_VALUE`), and voice catalog membership (`UNSUPPORTED_VOICE`).
+- **Frontend Voice Cloning UI Overhaul:** Upgraded `StudioView.tsx` with dedicated WAV file upload, library asset dropdown, and legal consent checkbox. Rebuilt production bundle (`apps/web/dist`) cleanly with 0 errors.
+- **Two-Tier Regression Test Suite (100% PASS):** Executed full regression suite:
+  - **Tier 1 (Fast CI Suite):** 42/42 tests passed in 52.24s (0 failed, 0 skipped).
+  - **Tier 2 (Hardware Integration Suite):** 15/15 tests passed in 131.43s (0 failed, 0 skipped).
+  - **Total:** 57/57 tests passing (100%).
+- **Authentic Acceptance Audio Package Generated:** Produced 4 real WAV files in `D:\AIVoiceStudioData\acceptance_audio_phase3\` outside Git:
+  1. `vi_male_haidang.wav`: VieNeu preset "Hải Đăng", 9.36s, 48kHz, RTF 1.39, SHA256: `b613c8f089dfbd06...`
+  2. `vi_female_maianh.wav`: VieNeu preset "Mai Anh", 10.16s, 48kHz, RTF 0.62, SHA256: `4856259e21e7633d...`
+  3. `vi_cloned_sample.wav`: VieNeu zero-shot clone from verified reference WAV, 9.20s, 48kHz, RTF 0.92, SHA256: `e76240d67c3e7845...`
+  4. `zh_female_vivian.wav`: Qwen3 preset "Vivian" on CUDA GPU, 12.40s, 24kHz, RTF 2.48, SHA256: `bb55e28b67f71e69...`
+- **Hardware Telemetry Verified:**
+  - PyTorch CUDA allocated: 2,065.0 MB; Peak board VRAM (nvidia-smi): 3,523.0 MB / 6,144.0 MB (57.3% usage); 2,747.0 MB cleanly reclaimed post-shutdown.
+  - VieNeu CPU worker RAM RSS: 2,444.0 MB, fully released upon worker termination.
+- **Scientific Honesty & Governance Compliance:** Documented Qwen3 RTF > 1.0 (2.48) as slower-than-real-time; classified voice cloning perceptual quality as **UNVERIFIED HUMAN-PERCEIVED SIMILARITY**; retained external CUDA OOM risk boundaries.
+- **Published Deliverables:** `PHASE_03_ACCEPTANCE_REVIEW.md`, `PHASE_03_FULL_REGRESSION.md`, and `PHASE_03_AUDIO_ACCEPTANCE.md`.
+
 ## 2026-10-08 — Phase 3 Production AI Engine Adapters & End-to-End Inference Integration Completed
 
 - **Mandatory Pre-Flight Gate Verification:** Passed all 6 pre-flight gate tests (`test_phase3_preflight.py` in 4.03s), verifying dual-scheduler conflict prevention, standalone runner execution, crash recovery with at-least-once semantics, cross-process GPU slot atomicity, and SSE replay across server restarts.
