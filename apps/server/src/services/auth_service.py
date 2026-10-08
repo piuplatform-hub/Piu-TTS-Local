@@ -172,3 +172,34 @@ async def get_current_user(
         )
 
     return user
+
+
+async def get_user_from_token_str(token_str: str, db: AsyncSession) -> User:
+    """Validates raw token string (used for EventSource SSE query parameter auth)."""
+    try:
+        payload = decode_access_token(token_str)
+        user_id = payload.get("sub")
+        if not user_id:
+            raise ValueError("Token missing subject claim")
+    except Exception:
+        raise AppException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            title="Invalid or Expired Token",
+            detail="The access token is invalid or has expired.",
+            code="INVALID_TOKEN",
+        )
+
+    stmt = select(User).where(User.id == user_id)
+    result = await db.execute(stmt)
+    user = result.scalar_one_or_none()
+
+    if not user or not user.is_active:
+        raise AppException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            title="User Inactive",
+            detail="User not found or deactivated.",
+            code="USER_INACTIVE",
+        )
+
+    return user
+

@@ -1,5 +1,20 @@
 # Documentation changelog
 
+## 2026-10-08 — Phase 2 Durable Job Orchestration & Production Resilience Completed
+
+- Backed up Phase 1 database: `D:\AIVoiceStudioData\studio.db.phase1.bak` and `D:\AIVoiceStudioData\backups\studio.db.phase1.bak`.
+- Applied Alembic migration `20261008_0002_durable_jobs.py`: added priority, resource_type, attempt_count, max_retries, fencing token, locked_by, and created durable `job_events` table.
+- Implemented `JobStateMachine` (`apps/server/src/services/job_state_machine.py`) with 6 explicit states (`queued`, `preparing`, `running`, `completed`, `failed`, `cancelled`) and `IllegalStateTransitionError`.
+- Implemented `DurableQueueService` (`apps/server/src/services/durable_queue_service.py`): atomic claiming, fencing tokens (`current_attempt_id`), lease expiration reclaiming, exponential backoff retries, short transactions without SQLite locking during worker synthesis, and idempotency collision checks (`409 Conflict`).
+- Implemented `ResourceManager` (`apps/server/src/services/resource_manager.py`): defensive slot limits (`max_gpu_slots = 1`, `max_cpu_slots = 1`, `max_global_slots = 2`) with waiting reasons.
+- Implemented `DurableJobScheduler` daemon (`apps/server/src/supervisor/scheduler.py`) running in FastAPI lifespan, with startup crash recovery, background lease heartbeats, and graceful shutdown.
+- Implemented Server-Sent Events (SSE) streaming (`GET /api/v1/jobs/{id}/events`) with query param token auth for EventSource, durable `job_events` persistence, and `Last-Event-ID` event replay.
+- Updated Frontend UI (`StudioView.tsx`, `JobHistoryTable.tsx`, `client.ts`): cancel job button, manual retry button, attempt indicators, waiting reason badges, SSE real-time streaming with polling fallback, and reload persistence.
+- Rebuilt frontend production bundle (`npm run build`).
+- Automated testing expanded to 28 tests (100% passed in 18.30s), completely covering the 15 Phase 2 testing matrix categories and capturing 6 real Chrome browser Playwright screenshots.
+- Published deliverables: `PHASE_02_DURABLE_QUEUE.md`, `PHASE_02_IMPLEMENTATION_REPORT.md`, `PHASE_02_TEST_EVIDENCE.md`, and `PHASE_02_KNOWN_LIMITATIONS.md`.
+- Corrected Phase 1B documentation conclusions regarding total board VRAM, CUDA OOM risk boundaries, slower-than-real-time RTF, unverified concurrency, and voice cloning similarity status.
+
 ## 2026-10-08 — Phase 1B Engine Feasibility & Hardware Benchmark Completed
 
 - Conducted pre-flight hardware and license verification for Intel Core i5-12400F and NVIDIA GeForce RTX 3050 (6GB VRAM) on Windows 11.

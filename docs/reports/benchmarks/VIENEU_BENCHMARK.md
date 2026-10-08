@@ -62,13 +62,16 @@ Tất cả các số liệu dưới đây được đo lường trực tiếp t�
 - **Real-Time Factor (RTF):** **`2.448`** (Bao gồm chi phí phân tích âm phổ và khử ồn)
 - **Đỉnh RAM tiến trình:** `2,440.4 MB`
 - **Tần số lấy mẫu:** **`48,000 Hz`**
-- **Lưu ý trung thực về nhân bản giọng cá nhân:** Đường ống kỹ thuật nhân bản giọng nói Zero-shot của VieNeu hoạt động hoàn toàn ổn định và chính xác. Tuy nhiên, tính năng nhân bản giọng đọc riêng của cá nhân người dùng được ghi nhận trạng thái **BLOCKED** chờ người dùng cung cấp file ghi âm mẫu chính chủ khi đưa vào vận hành thực tế.
+- **Phân định rõ ràng về kết quả Voice Cloning:** 
+  - Thực nghiệm đã xác nhận **đường ống kỹ thuật xử lý reference audio** (tự động khử nhiễu nền, trích xuất fbank embedding và giải mã qua ONNX) vận hành không lỗi và xuất file WAV hợp lệ.
+  - Tuy nhiên, **độ tương đồng giọng nói (Speaker Similarity / Cosine Similarity)** chưa được đo lường khách quan và chưa có đánh giá cảm âm từ con người (Human Listening Evaluation).
+  - Tính năng nhân bản giọng đọc riêng của cá nhân người dùng tiếp tục giữ trạng thái **BLOCKED** chờ cung cấp file ghi âm mẫu chính chủ khi đưa vào vận hành thực tế; không kết luận tính năng nhân bản hoàn tất chỉ dựa trên việc chạy thành công tệp tham chiếu kỹ thuật của kho lưu trữ.
 
 ---
 
-### 2.4. Độ Ổn định và Kiểm tra Rò rỉ Bộ nhớ (5 Vòng Chạy Liên Tiếp)
+### 2.4. Độ Ổn định Ngắn hạn & Đánh giá Rò rỉ Bộ nhớ
 
-Thực hiện 5 lần suy luận liên tiếp trên câu ngắn với cùng một giọng để đo độ biến thiên RTF và kiểm tra rò rỉ RAM:
+Thực hiện 5 lần suy luận liên tiếp trên câu ngắn với cùng một giọng để đo độ biến thiên RTF và biến động RAM trong phiên chạy ngắn:
 
 | Vòng chạy | Thời gian thực thi | RTF | RAM tiến trình (RSS) |
 |:---:|:---:|:---:|:---:|
@@ -79,18 +82,27 @@ Thực hiện 5 lần suy luận liên tiếp trên câu ngắn với cùng mộ
 | 5 | 2.04s | 0.555 | 2,443.3 MB |
 
 - **RTF trung bình (Warm Runs):** **`0.576 ± 0.035`**
-- **Độ dịch chuyển RAM (RAM Drift):** Tăng chỉ `1.2 MB` sau 5 vòng chạy liên tục -> **Không có rò rỉ bộ nhớ (Zero Memory Leak)**.
+- **Độ biến thiên RAM:** Tăng `1.2 MB` qua 5 lần chạy liên tiếp.
+- **Ranh giới khoa học:** Năm lần chạy liên tiếp thể hiện **tính ổn định ngắn hạn**, nhưng **chưa đủ để khẳng định hoàn toàn không có rò rỉ bộ nhớ (memory leaks)** trong môi trường phục vụ liên tục dài hạn (soak testing trong nhiều giờ/ngày vẫn cần được thực hiện trong tương lai).
 
 ---
 
-## 3. ĐÁNH GIÁ CHẤT LƯỢNG VÀ TÍNH KHẢ THI TÍCH HỢP
+## 3. THẨM ĐỊNH BẢN QUYỀN MÃ NGUỒN VÀ TRỌNG SỐ
+
+- **Mã nguồn (Code):** Được phân phối theo giấy phép **Apache License 2.0** trong kho GitHub `pnnbao97/VieNeu-TTS`.
+- **Trọng số mô hình (Model Weights):** Trọng số ONNX v3 Turbo (`pnnbao-ump/VieNeu-TTS-v3-Turbo`) và MOSS Codec trên Hugging Face Hub được xác nhận phát hành theo giấy phép **Apache-2.0**.
+- **Preset Voices:** Bộ giọng mẫu nhúng sẵn tuân thủ giấy phép **Apache-2.0**.
+
+---
+
+## 4. ĐÁNH GIÁ CHẤT LƯỢNG VÀ TÍNH KHẢ THI TÍCH HỢP
 
 | Tiêu chí | Đánh giá | Chi tiết minh chứng |
 |:---|:---:|:---|
 | **Cài đặt Windows** | Xuất sắc | Cài đặt trực tiếp qua `pip install vieneu`, không gặp lỗi build C++ |
 | **Độ độc lập tài nguyên** | Xuất sắc | Chạy hoàn toàn trên CPU qua ONNX, không tiêu tốn VRAM GPU |
 | **Tốc độ sinh âm thanh** | Đạt yêu cầu | RTF 0.55 - 0.75 (nhanh hơn thời gian thực 1.3x - 1.8x) |
-| **Chất lượng âm thanh** | Xuất sắc | Tần số 48,000 Hz, tự nhiên, không ngắt quãng |
-| **Nhân bản giọng** | Khả thi | Pipeline hoạt động tốt trên mẫu tham chiếu kỹ thuật |
+| **Chất lượng âm thanh** | Xuất sắc | Tần số 48,000 Hz, tệp WAV hợp lệ |
+| **Đường ống nhân bản giọng** | Khả thi kỹ thuật | Xử lý tham chiếu thành công; độ tương đồng giọng thực tế: UNVERIFIED |
 
-**Kết luận chuyên môn:** VieNeu-TTS v3 Turbo là ứng viên hoàn hảo cho adapter TTS tiếng Việt chạy cục bộ trên CPU của AI Voice Studio.
+**Kết luận chuyên môn:** VieNeu-TTS v3 Turbo là ứng viên khả thi cho adapter TTS tiếng Việt chạy cục bộ trên CPU của AI Voice Studio, với điều kiện theo dõi tải CPU và kiểm tra cảm âm thực tế.

@@ -115,6 +115,7 @@ class ApiClient {
     voice_id?: string;
     speed?: number;
     idempotency_key?: string;
+    priority?: number;
   }): Promise<JobRecord> {
     return this.request<JobRecord>('/api/v1/jobs/speech', {
       method: 'POST',
@@ -130,12 +131,115 @@ class ApiClient {
     return this.request<JobRecord[]>(`/api/v1/jobs?limit=${limit}&offset=${offset}`);
   }
 
+  async cancelJob(jobId: string): Promise<JobRecord> {
+    return this.request<JobRecord>(`/api/v1/jobs/${jobId}/cancel`, {
+      method: 'POST',
+    });
+  }
+
+  async retryJob(jobId: string): Promise<JobRecord> {
+    return this.request<JobRecord>(`/api/v1/jobs/${jobId}/retry`, {
+      method: 'POST',
+    });
+  }
+
   async getArtifactMetadata(artifactId: string): Promise<ArtifactMetadata> {
     return this.request<ArtifactMetadata>(`/api/v1/artifacts/${artifactId}`);
   }
 
   getArtifactAudioUrl(artifactId: string): string {
     return `/api/v1/artifacts/${artifactId}/file`;
+  }
+
+  /**
+   * Connects to Server-Sent Events (SSE) stream for a job with automatic query token auth
+   * and polling fallback. Returns a cleanup unsubscribe function.
+   */
+  connectJobEvents(
+    jobId: string,
+    onEvent: (event: any) => void,
+    onError?: (error: any) => void,
+    lastEventId?: number
+  ): () => void {
+    let closed = false;
+    let eventSource: EventSource | null = null;
+    let pollInterval: number | null = null;
+
+    const startPollingFallback = () => {
+      if (closed || pollInterval !== null) return;
+      pollInterval = window.setInterval(async () => {
+        if (closed) return;
+        try {
+          const current = await this.getJob(jobId);
+          onEvent({
+            event_type: 'status_change',
+            data: current,
+          });
+          if (['completed', 'failed', 'cancelled'].includes(current.status)) {
+            if (pollInterval) clearInterval(pollInterval);
+          }
+        } catch (e) {
+          if (onError) onError(e);
+        }
+      }, 1000);
+    };
+
+    try {
+      const token = this.getToken() || '';
+      const queryParams = new URLSearchParams({ token });
+      if (lastEventId !== undefined && lastEventId !== null) {
+        queryParams.set('last_event_id', lastEventId.toString());
+      }
+
+      const sseUrl = `/api/v1/jobs/${jobId}/events?${queryParams.toString()}`;
+      eventSource = new EventSource(sseUrl);
+
+      const eventTypes = ['status_change', 'progress', 'heartbeat', 'completed', 'failed', 'cancelled'];
+      eventTypes.forEach((type) => {
+        eventSource!.addEventListener(type, (e: MessageEvent) => {
+          if (closed) return;
+          try {
+            const data = JSON.parse(e.data);
+            onEvent({
+              id: e.lastEventId ? parseInt(e.lastEventId, 10) : undefined,
+              event_type: type,
+              data,
+            });
+            if (['completed', 'failed', 'cancelled'].includes(type)) {
+              if (eventSource) eventSource.close();
+            }
+          } catch (err) {
+            console.error('Failed to parse SSE payload', err);
+          }
+        });
+      });
+
+      eventSource.onerror = (e) => {
+        if (closed) return;
+        console.warn('SSE stream error, switching to polling fallback', e);
+        if (onError) onError(e);
+        if (eventSource) {
+          eventSource.close();
+          eventSource = null;
+        }
+        startPollingFallback();
+      };
+    } catch (e) {
+      console.warn('Failed to initialize EventSource, using polling fallback', e);
+      startPollingFallback();
+    }
+
+    return () => {
+      closed = true;
+      if (eventSource) {
+        eventSource.close();
+        eventSource = null;
+      }
+      if (pollInterval !== null) {
+        clearInterval(pollInterval);
+        pollInterval = null;
+      }
+    };
   }
 }
 

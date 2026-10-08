@@ -24,6 +24,7 @@ from .core.security import get_or_create_bootstrap_token
 from .services.auth_service import AuthService
 from .services.engine_service import EngineService
 from .supervisor.supervisor import supervisor
+from .supervisor.scheduler import scheduler
 from .api.v1.router import api_v1_router
 
 
@@ -47,10 +48,14 @@ async def lifespan(app: FastAPI):
         # Discover & spawn registered local inference engines
         await EngineService.discover_and_register_engines(session, workspace_root)
 
+    # Start Durable Job Scheduler daemon
+    await scheduler.start()
+
     yield
 
-    # Shutdown: Cleanly terminate worker child processes
-    print("\nShutting down AI Voice Studio worker processes...")
+    # Shutdown: Stop scheduler and cleanly terminate worker child processes
+    print("\nShutting down AI Voice Studio scheduler and worker processes...")
+    await scheduler.stop()
     await supervisor.stop_all()
 
 

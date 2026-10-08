@@ -9,10 +9,15 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock,
+  XCircle,
+  RefreshCw,
+  Radio,
 } from 'lucide-react';
 import { api, ApiError } from '../api/client';
 import { EngineInfo, JobRecord } from '../types';
 import { AudioPlayer } from './AudioPlayer';
+
+const ACTIVE_JOB_KEY = 'active_studio_job_id';
 
 const SAMPLE_PROMPTS = [
   {
@@ -49,8 +54,36 @@ export const StudioView: React.FC = () => {
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [currentJob, setCurrentJob] = useState<JobRecord | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [sseConnected, setSseConnected] = useState<boolean>(false);
 
-  const pollIntervalRef = useRef<number | null>(null);
+  const sseCleanupRef = useRef<(() => void) | null>(null);
+
+  // Resume active job across page reload
+  useEffect(() => {
+    const savedJobId = localStorage.getItem(ACTIVE_JOB_KEY);
+    if (savedJobId) {
+      api.getJob(savedJobId)
+        .then((job) => {
+          setCurrentJob(job);
+          if (['queued', 'preparing', 'running'].includes(job.status)) {
+            setSubmitting(true);
+            attachJobListener(job.id);
+          } else {
+            localStorage.removeItem(ACTIVE_JOB_KEY);
+          }
+        })
+        .catch(() => {
+          localStorage.removeItem(ACTIVE_JOB_KEY);
+        });
+    }
+
+    return () => {
+      if (sseCleanupRef.current) {
+        sseCleanupRef.current();
+        sseCleanupRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     // Load available engines
@@ -71,10 +104,6 @@ export const StudioView: React.FC = () => {
         setError('Không thể tải danh sách AI Engine từ backend.');
       })
       .finally(() => setLoadingEngines(false));
-
-    return () => {
-      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-    };
   }, []);
 
   // Update available voices when engine or language changes
@@ -86,6 +115,67 @@ export const StudioView: React.FC = () => {
       setSelectedVoiceId(filteredVoices[0].id);
     }
   }, [selectedLang, selectedEngineId, filteredVoices, selectedVoiceId]);
+
+  const attachJobListener = (jobId: string) => {
+    if (sseCleanupRef.current) {
+      sseCleanupRef.current();
+      sseCleanupRef.current = null;
+    }
+
+    setSseConnected(true);
+
+    const cleanup = api.connectJobEvents(
+      jobId,
+      (evt) => {
+        const evtType = evt.event_type;
+        const data = evt.data || {};
+
+        setCurrentJob((prev) => {
+          if (!prev) return null;
+          const updated: JobRecord = { ...prev };
+
+          if (evtType === 'status_change') {
+            updated.status = data.status || updated.status;
+            if (data.attempt_count !== undefined) updated.attempt_count = data.attempt_count;
+            if (data.waiting_reason !== undefined) updated.waiting_reason = data.waiting_reason;
+          } else if (evtType === 'progress') {
+            if (data.progress_percent !== undefined) updated.progress_percent = data.progress_percent;
+            if (data.status) updated.status = data.status;
+          } else if (evtType === 'completed') {
+            updated.status = 'completed';
+            updated.progress_percent = 100;
+            updated.artifact_id = data.artifact_id || updated.artifact_id;
+            updated.finished_at = data.finished_at || new Date().toISOString();
+            setSubmitting(false);
+            localStorage.removeItem(ACTIVE_JOB_KEY);
+          } else if (evtType === 'failed') {
+            updated.status = 'failed';
+            updated.error_details = data.error_details || updated.error_details;
+            updated.finished_at = data.finished_at || new Date().toISOString();
+            setSubmitting(false);
+            localStorage.removeItem(ACTIVE_JOB_KEY);
+          } else if (evtType === 'cancelled') {
+            updated.status = 'cancelled';
+            updated.finished_at = data.finished_at || new Date().toISOString();
+            setSubmitting(false);
+            localStorage.removeItem(ACTIVE_JOB_KEY);
+          }
+
+          return updated;
+        });
+
+        // Also fetch full sync if terminal
+        if (['completed', 'failed', 'cancelled'].includes(evtType)) {
+          api.getJob(jobId).then(setCurrentJob).catch(() => {});
+        }
+      },
+      () => {
+        setSseConnected(false);
+      }
+    );
+
+    sseCleanupRef.current = cleanup;
+  };
 
   const handleGenerate = async () => {
     if (!text.trim()) {
@@ -105,7 +195,8 @@ export const StudioView: React.FC = () => {
         idempotency_key: `client-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       });
       setCurrentJob(job);
-      startPolling(job.id);
+      localStorage.setItem(ACTIVE_JOB_KEY, job.id);
+      attachJobListener(job.id);
     } catch (err) {
       if (err instanceof ApiError) {
         setError(err.problem.detail || err.problem.title || 'Lỗi gửi yêu cầu tạo âm thanh');
@@ -116,22 +207,36 @@ export const StudioView: React.FC = () => {
     }
   };
 
-  const startPolling = (jobId: string) => {
-    if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+  const handleCancel = async () => {
+    if (!currentJob) return;
+    if (!window.confirm('Bạn có chắc chắn muốn hủy tác vụ đang xử lý?')) return;
 
-    pollIntervalRef.current = window.setInterval(async () => {
-      try {
-        const updated = await api.getJob(jobId);
-        setCurrentJob(updated);
+    try {
+      const cancelled = await api.cancelJob(currentJob.id);
+      setCurrentJob(cancelled);
+      setSubmitting(false);
+      localStorage.removeItem(ACTIVE_JOB_KEY);
+    } catch (err) {
+      console.error('Failed to cancel job', err);
+    }
+  };
 
-        if (updated.status === 'completed' || updated.status === 'failed' || updated.status === 'cancelled') {
-          if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-          setSubmitting(false);
-        }
-      } catch (e) {
-        console.error('Job polling error', e);
+  const handleRetry = async () => {
+    if (!currentJob) return;
+    setError(null);
+    setSubmitting(true);
+
+    try {
+      const retried = await api.retryJob(currentJob.id);
+      setCurrentJob(retried);
+      localStorage.setItem(ACTIVE_JOB_KEY, retried.id);
+      attachJobListener(retried.id);
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setError(err.problem.detail || 'Không thể thử lại tác vụ.');
       }
-    }, 500);
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -142,11 +247,17 @@ export const StudioView: React.FC = () => {
           <h1 className="text-2xl font-bold text-white tracking-tight flex items-center space-x-2.5">
             <span>Speech Studio</span>
             <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium">
-              Contract Engine Ready
+              Phase 2 Durable Queue
             </span>
+            {sseConnected && (
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 flex items-center space-x-1 font-mono">
+                <Radio className="w-3 h-3 animate-pulse" />
+                <span>SSE Live</span>
+              </span>
+            )}
           </h1>
           <p className="text-xs text-slate-400 mt-1">
-            Chuyển đổi văn bản thành giọng nói chuẩn phòng thu với kiến trúc cô lập tiến trình Worker.
+            Hàng đợi bền vững giao dịch SQLite WAL, cơ chế Fencing Token và tự khôi phục sau sự cố.
           </p>
         </div>
 
@@ -205,7 +316,7 @@ export const StudioView: React.FC = () => {
             {submitting ? (
               <>
                 <RotateCw className="w-4 h-4 animate-spin" />
-                <span>Đang xử lý âm thanh...</span>
+                <span>Đang xếp hàng & xử lý âm thanh...</span>
               </>
             ) : (
               <>
@@ -233,19 +344,59 @@ export const StudioView: React.FC = () => {
                 <div className="flex items-center space-x-2.5">
                   {currentJob.status === 'completed' && <CheckCircle2 className="w-5 h-5 text-emerald-400" />}
                   {currentJob.status === 'running' && <RotateCw className="w-5 h-5 text-emerald-400 animate-spin" />}
+                  {currentJob.status === 'preparing' && <RotateCw className="w-5 h-5 text-teal-400 animate-spin" />}
                   {currentJob.status === 'queued' && <Clock className="w-5 h-5 text-amber-400" />}
                   {currentJob.status === 'failed' && <AlertTriangle className="w-5 h-5 text-red-400" />}
+                  {currentJob.status === 'cancelled' && <XCircle className="w-5 h-5 text-slate-400" />}
                   <div>
-                    <h3 className="text-sm font-semibold text-white">
-                      Trạng thái Job: <span className="uppercase text-emerald-400">{currentJob.status}</span>
+                    <h3 className="text-sm font-semibold text-white flex items-center space-x-2">
+                      <span>Trạng thái:</span>
+                      <span className="uppercase text-emerald-400">{currentJob.status}</span>
+                      {currentJob.attempt_count !== undefined && currentJob.attempt_count > 0 && (
+                        <span className="text-[10px] text-slate-400 font-normal bg-slate-800 px-2 py-0.5 rounded-full">
+                          Lần thử: {currentJob.attempt_count}/{currentJob.max_retries || 3}
+                        </span>
+                      )}
                     </h3>
                     <p className="text-[11px] text-slate-400 font-mono">ID: {currentJob.id}</p>
                   </div>
                 </div>
-                <span className="text-xs font-mono font-medium text-slate-300">
-                  {currentJob.progress_percent}%
-                </span>
+
+                <div className="flex items-center space-x-3">
+                  <span className="text-xs font-mono font-medium text-slate-300">
+                    {currentJob.progress_percent}%
+                  </span>
+
+                  {/* Cancel Button */}
+                  {['queued', 'preparing', 'running'].includes(currentJob.status) && (
+                    <button
+                      onClick={handleCancel}
+                      className="px-2.5 py-1 text-xs rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 transition-colors"
+                    >
+                      Hủy tác vụ
+                    </button>
+                  )}
+
+                  {/* Retry Button */}
+                  {currentJob.status === 'failed' && (
+                    <button
+                      onClick={handleRetry}
+                      className="px-2.5 py-1 text-xs rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 flex items-center space-x-1 transition-colors"
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                      <span>Thử lại</span>
+                    </button>
+                  )}
+                </div>
               </div>
+
+              {/* Waiting reason banner */}
+              {currentJob.waiting_reason && ['queued', 'preparing'].includes(currentJob.status) && (
+                <div className="p-2.5 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-300 text-xs flex items-center space-x-2">
+                  <Clock className="w-3.5 h-3.5 flex-shrink-0 animate-pulse" />
+                  <span>{currentJob.waiting_reason}</span>
+                </div>
+              )}
 
               {/* Progress bar */}
               <div className="w-full h-2 bg-slate-950 rounded-full overflow-hidden border border-slate-800">
@@ -253,6 +404,8 @@ export const StudioView: React.FC = () => {
                   className={`h-full transition-all duration-300 rounded-full ${
                     currentJob.status === 'failed'
                       ? 'bg-red-500'
+                      : currentJob.status === 'cancelled'
+                      ? 'bg-slate-600'
                       : 'bg-gradient-to-r from-emerald-500 to-teal-400'
                   }`}
                   style={{ width: `${currentJob.progress_percent}%` }}

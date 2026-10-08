@@ -13,6 +13,8 @@ from apps.server.src.config import settings
 from apps.server.src import database
 from apps.server.src.main import app
 from apps.server.src.supervisor.supervisor import supervisor
+from apps.server.src.supervisor.scheduler import scheduler
+from apps.server.src.services.resource_manager import resource_manager
 from apps.server.src.services.engine_service import EngineService
 from engine_sdk.manifest import EngineManifest
 
@@ -29,7 +31,7 @@ async def test_env():
     """
     Sets up an isolated temporary data directory and test SQLite database for each test.
     """
-    with tempfile.TemporaryDirectory() as tmp_dir:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp_dir:
         tmp_path = Path(tmp_dir)
         settings.STUDIO_DATA_DIR = str(tmp_path)
         db_path = tmp_path / "test_studio.db"
@@ -51,12 +53,18 @@ async def test_env():
         # Initialize schema tables
         await database.init_db()
 
+        # Reset resource slots and start scheduler for test environment
+        await resource_manager.reset()
+        await scheduler.start()
+
         yield {
             "tmp_path": tmp_path,
             "db_path": db_path,
         }
 
         # Cleanup
+        await scheduler.stop()
+        await resource_manager.reset()
         await test_engine.dispose()
 
 

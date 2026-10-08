@@ -130,16 +130,30 @@ def test_real_browser_end_to_end_journey():
             download_href = download_btn.get_attribute("href")
             assert download_href and "/file" in download_href
 
+            # Step 11b: Accept any confirmation dialogs (for job cancellation)
+            page.on("dialog", lambda dialog: dialog.accept())
+
+            # Submit another job and cancel it while in flight
+            page.fill('textarea[placeholder="Nhập đoạn văn bản cần chuyển thành giọng nói tại đây..."]', "Tác vụ này sẽ bị hủy kiểm thử Phase 2.")
+            page.click('button:has-text("Tạo giọng nói")')
+
+            # Wait for Cancel button and click it
+            page.wait_for_selector('button:has-text("Hủy tác vụ")', timeout=5000)
+            page.click('button:has-text("Hủy tác vụ")')
+            page.wait_for_selector('text=CANCELLED', timeout=5000)
+            page.screenshot(path=str(SCREENSHOT_DIR / "04_job_cancelled_view.png"))
+
             # Navigate to History Tab
             page.click('button:has-text("Lịch sử")')
             page.wait_for_selector("text=Lịch Sử Tạo Giọng Nói", timeout=5000)
             page.wait_for_selector("text=mock-tts", timeout=5000)
-            page.screenshot(path=str(SCREENSHOT_DIR / "04_job_history_view.png"))
+            page.wait_for_selector("text=cancelled", timeout=5000)
+            page.screenshot(path=str(SCREENSHOT_DIR / "05_job_history_view.png"))
 
             # Step 12: Log out and confirm protected view
             page.click('button[title="Đăng xuất"]')
             page.wait_for_selector("text=Đăng Nhập Cục Bộ", timeout=5000)
-            page.screenshot(path=str(SCREENSHOT_DIR / "05_logged_out_view.png"))
+            page.screenshot(path=str(SCREENSHOT_DIR / "06_logged_out_view.png"))
 
             browser.close()
 
@@ -164,13 +178,14 @@ def test_real_browser_end_to_end_journey():
     assert len(critical_errors) == 0, f"Unexpected browser console errors: {critical_errors}"
     assert len(network_failures) == 0, f"Unexpected failed network requests: {network_failures}"
 
-    # Confirm all 5 screenshots exist
+    # Confirm all 6 screenshots exist
     for num, name in [
         ("01", "01_onboarding_view.png"),
         ("02", "02_speech_studio_view.png"),
         ("03", "03_audio_generated_view.png"),
-        ("04", "04_job_history_view.png"),
-        ("05", "05_logged_out_view.png"),
+        ("04", "04_job_cancelled_view.png"),
+        ("05", "05_job_history_view.png"),
+        ("06", "06_logged_out_view.png"),
     ]:
         file_p = SCREENSHOT_DIR / name
         assert file_p.exists() and file_p.stat().st_size > 10000, f"Screenshot {name} is missing or empty"

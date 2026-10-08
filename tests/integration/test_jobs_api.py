@@ -81,8 +81,24 @@ async def test_tts_job_lifecycle_and_artifact(client, running_mock_engine):
     assert audio_bytes[:4] == b"RIFF"
     assert b"WAVE" in audio_bytes[:16]
 
-    # 7. Test Idempotency: Resubmitting with same key returns identical job
-    idem_res = await client.post(
+    # 7. Test Idempotency: Resubmitting with same key and same payload returns identical job
+    idem_same = await client.post(
+        "/api/v1/jobs/speech",
+        headers=headers,
+        json={
+            "text": "Chào mừng đến với AI Voice Studio Phase 1",
+            "engine_id": "mock-tts",
+            "language": "vi",
+            "voice_id": "vi-female-1",
+            "speed": 1.0,
+            "idempotency_key": "test-key-001",
+        },
+    )
+    assert idem_same.status_code in (200, 201)
+    assert idem_same.json()["id"] == job_id
+
+    # 7b. Resubmitting with same key but different payload returns 409 Conflict (Phase 2 RFC)
+    idem_diff = await client.post(
         "/api/v1/jobs/speech",
         headers=headers,
         json={
@@ -92,8 +108,8 @@ async def test_tts_job_lifecycle_and_artifact(client, running_mock_engine):
             "idempotency_key": "test-key-001",
         },
     )
-    assert idem_res.status_code in (200, 201)
-    assert idem_res.json()["id"] == job_id
+    assert idem_diff.status_code == 409
+    assert idem_diff.json()["code"] == "IDEMPOTENCY_CONFLICT"
 
     # 8. Test Error Handling: Unsupported Language -> RFC 9457 422
     err_res = await client.post(

@@ -1,5 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { RefreshCw, Play, Download, Clock, CheckCircle2, AlertCircle, RotateCw } from 'lucide-react';
+import {
+  RefreshCw,
+  Play,
+  Download,
+  Clock,
+  CheckCircle2,
+  AlertCircle,
+  RotateCw,
+  XCircle,
+  Ban,
+  RotateCcw,
+} from 'lucide-react';
 import { api } from '../api/client';
 import { JobRecord } from '../types';
 import { AudioPlayer } from './AudioPlayer';
@@ -21,13 +32,32 @@ export const JobHistoryTable: React.FC = () => {
     fetchJobs();
   }, []);
 
+  const handleCancelJob = async (jobId: string) => {
+    if (!window.confirm('Bạn có chắc chắn muốn hủy tác vụ này?')) return;
+    try {
+      await api.cancelJob(jobId);
+      fetchJobs();
+    } catch (e) {
+      console.error('Failed to cancel job', e);
+    }
+  };
+
+  const handleRetryJob = async (jobId: string) => {
+    try {
+      await api.retryJob(jobId);
+      fetchJobs();
+    } catch (e) {
+      console.error('Failed to retry job', e);
+    }
+  };
+
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
       <div className="flex items-center justify-between pb-6 border-b border-slate-800">
         <div>
           <h1 className="text-2xl font-bold text-white tracking-tight">Lịch Sử Tạo Giọng Nói</h1>
           <p className="text-xs text-slate-400 mt-1">
-            Danh sách các yêu cầu tổng hợp âm thanh đã xử lý trên máy cục bộ.
+            Danh sách các yêu cầu tổng hợp âm thanh trong hàng đợi bền vững SQLite.
           </p>
         </div>
         <button
@@ -82,37 +112,59 @@ export const JobHistoryTable: React.FC = () => {
                   <tr key={job.id} className="hover:bg-slate-800/30 transition-colors">
                     <td className="py-3.5 px-4 font-mono text-slate-400">
                       {job.id.slice(0, 8)}...
+                      {job.attempt_count !== undefined && job.attempt_count > 1 && (
+                        <span className="ml-1 text-[10px] text-slate-500">
+                          (lần {job.attempt_count})
+                        </span>
+                      )}
                     </td>
                     <td className="py-3.5 px-4 font-medium text-white">
                       {job.engine_id}
                     </td>
                     <td className="py-3.5 px-4">
-                      <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium border capitalize bg-slate-950 border-slate-800">
-                        {job.status === 'completed' && (
-                          <>
-                            <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-                            <span className="text-emerald-400">{job.status}</span>
-                          </>
+                      <div className="space-y-1">
+                        <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium border capitalize bg-slate-950 border-slate-800">
+                          {job.status === 'completed' && (
+                            <>
+                              <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                              <span className="text-emerald-400">{job.status}</span>
+                            </>
+                          )}
+                          {job.status === 'running' && (
+                            <>
+                              <RotateCw className="w-3 h-3 text-emerald-400 animate-spin" />
+                              <span className="text-emerald-400">{job.status}</span>
+                            </>
+                          )}
+                          {job.status === 'preparing' && (
+                            <>
+                              <RotateCw className="w-3 h-3 text-teal-400 animate-spin" />
+                              <span className="text-teal-400">{job.status}</span>
+                            </>
+                          )}
+                          {job.status === 'queued' && (
+                            <>
+                              <Clock className="w-3 h-3 text-amber-400" />
+                              <span className="text-amber-400">{job.status}</span>
+                            </>
+                          )}
+                          {job.status === 'failed' && (
+                            <>
+                              <AlertCircle className="w-3 h-3 text-red-400" />
+                              <span className="text-red-400">{job.status}</span>
+                            </>
+                          )}
+                          {job.status === 'cancelled' && (
+                            <>
+                              <XCircle className="w-3 h-3 text-slate-400" />
+                              <span className="text-slate-400">{job.status}</span>
+                            </>
+                          )}
+                        </span>
+                        {job.waiting_reason && (
+                          <p className="text-[10px] text-amber-400/80">{job.waiting_reason}</p>
                         )}
-                        {job.status === 'running' && (
-                          <>
-                            <RotateCw className="w-3 h-3 text-emerald-400 animate-spin" />
-                            <span className="text-emerald-400">{job.status}</span>
-                          </>
-                        )}
-                        {job.status === 'queued' && (
-                          <>
-                            <Clock className="w-3 h-3 text-amber-400" />
-                            <span className="text-amber-400">{job.status}</span>
-                          </>
-                        )}
-                        {job.status === 'failed' && (
-                          <>
-                            <AlertCircle className="w-3 h-3 text-red-400" />
-                            <span className="text-red-400">{job.status}</span>
-                          </>
-                        )}
-                      </span>
+                      </div>
                     </td>
                     <td className="py-3.5 px-4 font-mono">
                       {job.progress_percent}%
@@ -121,25 +173,50 @@ export const JobHistoryTable: React.FC = () => {
                       {new Date(job.queued_at).toLocaleTimeString('vi-VN')}
                     </td>
                     <td className="py-3.5 px-4 text-right">
-                      {job.artifact_id && (
-                        <div className="flex items-center justify-end space-x-2">
+                      <div className="flex items-center justify-end space-x-1.5">
+                        {/* Audio action */}
+                        {job.artifact_id && (
+                          <>
+                            <button
+                              onClick={() => setActiveArtifactId(job.artifact_id!)}
+                              className="p-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 transition-colors"
+                              title="Nghe audio"
+                            >
+                              <Play className="w-3.5 h-3.5" />
+                            </button>
+                            <a
+                              href={api.getArtifactAudioUrl(job.artifact_id)}
+                              download={`speech-${job.artifact_id.slice(0, 8)}.wav`}
+                              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
+                              title="Tải về"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                            </a>
+                          </>
+                        )}
+
+                        {/* Cancel action */}
+                        {['queued', 'preparing', 'running'].includes(job.status) && (
                           <button
-                            onClick={() => setActiveArtifactId(job.artifact_id!)}
-                            className="p-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 transition-colors"
-                            title="Nghe audio"
+                            onClick={() => handleCancelJob(job.id)}
+                            className="p-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 transition-colors"
+                            title="Hủy tác vụ"
                           >
-                            <Play className="w-3.5 h-3.5" />
+                            <Ban className="w-3.5 h-3.5" />
                           </button>
-                          <a
-                            href={api.getArtifactAudioUrl(job.artifact_id)}
-                            download={`speech-${job.artifact_id.slice(0, 8)}.wav`}
-                            className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
-                            title="Tải về"
+                        )}
+
+                        {/* Retry action */}
+                        {job.status === 'failed' && (
+                          <button
+                            onClick={() => handleRetryJob(job.id)}
+                            className="p-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 transition-colors"
+                            title="Thử lại"
                           >
-                            <Download className="w-3.5 h-3.5" />
-                          </a>
-                        </div>
-                      )}
+                            <RotateCcw className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))

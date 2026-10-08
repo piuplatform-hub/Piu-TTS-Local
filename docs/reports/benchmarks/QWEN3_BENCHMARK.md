@@ -82,17 +82,31 @@ Thực hiện 3 lần chạy liên tiếp trên câu ngắn:
 - Vòng 3: Thời gian = `8.24s`, RTF = `1.873`
 - **RTF trung bình (Warm Stable):** **`2.000`**
 
-### 2.5. Giải Phóng Bộ Nhớ GPU Hậu Thực Thi
-- Sau khi benchmark hoàn tất, gọi `torch.cuda.empty_cache()` và kết thúc tiến trình.
-- `nvidia-smi` xác nhận: VRAM giải phóng hoàn toàn về mức `2,209 MiB` (mức nhàn rỗi thông thường của desktop Windows), không để lại bất kỳ tiến trình zombie GPU nào.
+### 2.5. Phân Định Bộ Nhớ PyTorch vs Bộ Nhớ Vật Lý Card Đồ Họa (Board VRAM)
+- **PyTorch Allocated Memory (`torch.cuda.memory_allocated()`):** Đo lường trọng số mô hình và tensor kích hoạt thực tế: Baseline `2,056.9 MB`, đỉnh `2,772.3 MB`.
+- **PyTorch Reserved Memory (`torch.cuda.memory_reserved()`):** Bộ nhớ đệm được trình quản lý PyTorch CUDA Caching Allocator giữ lại từ OS: `~2,184 MB – 3,120 MB`.
+- **Bộ nhớ Vật lý Toàn Bo mạch (Total Board VRAM qua `nvidia-smi`):** Bao gồm cả Desktop Window Manager (DWM), Chrome/Edge GPU acceleration, CapCut, Antigravity và các ứng dụng Windows khác:
+  - Mức nền Windows nhàn rỗi: `~2,209 MiB – 2,472 MiB`.
+  - Tổng VRAM toàn bo mạch khi đang suy luận Qwen3-TTS: **`~4,680 MiB – 5,250 MiB / 6,144 MiB`**.
+- Sau khi benchmark hoàn tất, gọi `torch.cuda.empty_cache()` và giải phóng tiến trình, VRAM toàn bo mạch quay về mức nhàn rỗi `2,209 MiB`.
 
 ---
 
-## 3. ĐÁNH GIÁ CHUYÊN MÔN VÀ KHUYẾN NGHỊ TÍCH HỢP
+## 3. THẨM ĐỊNH BẢN QUYỀN MÃ NGUỒN VÀ TRỌNG SỐ
 
-1. **Về VRAM (Bộ nhớ đồ họa):**
-   - Đỉnh VRAM lớn nhất ghi nhận được chỉ là **`2,772.3 MB`** (dưới 2.8 GB), hoàn toàn nằm trong giới hạn an toàn của card đồ họa **RTX 3050 6GB** ngay cả khi máy tính đang mở các ứng dụng văn phòng khác.
-   - Giả định trước đây về nguy cơ thiếu VRAM đối với bản 0.6B đã chính thức được **bác bỏ bằng số liệu thực nghiệm**.
-2. **Về Tốc độ Suy luận (RTF ~ 2.0):**
-   - Vì chạy ở chế độ PyTorch tiêu chuẩn không dùng `flash-attn` (do môi trường Windows không biên dịch wheel C++), RTF đạt khoảng 1.8 - 2.0 (tạo 10s audio mất ~18-20s). Mức này hoàn toàn chấp nhận được cho bài toán xử lý tác vụ ngầm (Background Job Queue) trong AI Voice Studio.
-3. **Phán quyết:** **PASS** — Khuyến nghị chọn làm Engine tiếng Trung chính thức cho Phase 3.
+- **Mã nguồn (Code):** Phân phối theo giấy phép **Apache License 2.0** trong kho GitHub `QwenLM/Qwen3-TTS`.
+- **Trọng số mô hình (Model Weights):** Trọng số `Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice` và `Qwen3-TTS-Tokenizer-12Hz` được Alibaba Qwen Team phân phối mở theo giấy phép **Apache-2.0** trên Hugging Face và ModelScope.
+
+---
+
+## 4. ĐÁNH GIÁ CHUYÊN MÔN VÀ CÁC RANH GIỚI BẮT BUỘC
+
+1. **Ranh giới VRAM & Nguy cơ CUDA OOM (Chưa Triệt Tiêu Hoàn Toàn):**
+   - Mặc dù bản 0.6B chỉ tiêu tốn nội bộ `~2.77 GB` VRAM cho PyTorch, **nguy cơ CUDA Out-Of-Memory (OOM) KHÔNG THỂ coi là đã bị triệt tiêu**.
+   - Vì máy tính phát triển chạy Windows 11 với nhiều ứng dụng đồ họa song song (như CapCut, trình duyệt nhiều tab, Zalo, DWM), tổng bộ nhớ bo mạch đã chạm ngưỡng `~5.25 GB / 6 GB`.
+   - Nếu người dùng xử lý video nặng hoặc mở thêm ứng dụng đồ họa khác trong lúc tổng hợp giọng nói, hoặc khi xử lý các đoạn văn bản dài gây phân mảnh bộ nhớ (VRAM fragmentation), sự cố CUDA OOM hoàn toàn có thể xảy ra.
+2. **Tốc độ Suy luận (Slower-Than-Real-Time):**
+   - RTF thực nghiệm nằm trong khoảng **`1.87 – 2.06` (RTF > 1.0)**.
+   - Điều này đồng nghĩa với việc suy luận **chậm hơn thời gian thực khoảng 2 lần** (sinh 10 giây âm thanh mất khoảng 18 đến 20 giây tính toán).
+   - Qwen3-TTS 0.6B trên phần cứng này **không phù hợp cho bài toán hội thoại thời gian thực trực tiếp (interactive streaming)** mà bắt buộc phải vận hành thông qua **hàng đợi tác vụ bất đồng bộ (Asynchronous Durable Job Queue)**.
+3. **Phán quyết:** **PASS WITH LIMITATIONS** (Đạt cho xử lý hàng đợi nền, cần cơ chế kiểm soát VRAM và giới hạn xử lý đồng thời GPU = 1).

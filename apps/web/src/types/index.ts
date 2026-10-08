@@ -44,12 +44,19 @@ export interface JobRecord {
   job_type: string;
   status: JobStatusType;
   progress_percent: number;
+  priority?: number;
+  resource_type?: string;
+  attempt_count?: number;
+  max_retries?: number;
+  waiting_reason?: string | null;
   artifact_id?: string | null;
   error_details?: {
     code?: string;
     message?: string;
+    attempt_count?: number;
   } | null;
   queued_at: string;
+  started_at?: string | null;
   finished_at?: string | null;
 }
 
