@@ -133,6 +133,8 @@ def test_phase4_real_browser_master_export_and_download():
 
             page.on("console", lambda msg: console_errors.append(msg.text) if msg.type == "error" else None)
             page.on("requestfailed", lambda req: network_failures.append(f"{req.method} {req.url}: {req.failure}"))
+            requested_urls = []
+            page.on("request", lambda req: requested_urls.append(req.url))
 
             base_url = f"http://127.0.0.1:{port}"
 
@@ -248,14 +250,12 @@ def test_phase4_real_browser_master_export_and_download():
             page.screenshot(path=str(screenshot_path))
             assert screenshot_path.is_file(), f"Screenshot not found at {screenshot_path}"
 
-            # Step 11: Real Browser Download Interception via Playwright
-            download_btn = page.locator('a:has-text("Tải File Âm Thanh Master Ngay (WAV)")')
+            # Step 11: Real Browser Download Interception via Playwright (Fetch + Blob URL)
+            download_btn = page.locator('button:has-text("Tải File Âm Thanh Master Ngay (WAV)")')
             assert download_btn.is_visible()
 
-            # Verify href contains ?token= query parameter
-            href = download_btn.get_attribute("href")
-            assert href is not None
-            assert "/download?token=" in href, f"Download URL missing token query parameter: {href}"
+            # Verify button does NOT expose href or token in DOM
+            assert download_btn.get_attribute("href") is None, "Download button must not be an anchor tag with href"
 
             with page.expect_download(timeout=10000) as download_info:
                 download_btn.click()
@@ -281,7 +281,7 @@ def test_phase4_real_browser_master_export_and_download():
             page.select_option('select:has(option[value="mp3"])', value="mp3")
             page.click('button:has-text("Bắt Đầu Ghép Nối & Xuất Bản Master")')
 
-            mp3_download_btn = page.locator('a:has-text("Tải File Âm Thanh Master Ngay (MP3)")')
+            mp3_download_btn = page.locator('button:has-text("Tải File Âm Thanh Master Ngay (MP3)")')
             mp3_download_btn.wait_for(state="visible", timeout=15000)
 
             with page.expect_download(timeout=10000) as mp3_dl_info:
@@ -295,7 +295,7 @@ def test_phase4_real_browser_master_export_and_download():
 
             # Step 14: Verify Export History and Re-download
             page.wait_for_selector("text=Lịch sử các bản Master trước đó", timeout=5000)
-            history_dl_buttons = page.locator('a[title="Tải về"]')
+            history_dl_buttons = page.locator('button[title="Tải về"]')
             assert history_dl_buttons.count() >= 2, f"Expected >= 2 history items, got {history_dl_buttons.count()}"
 
             with page.expect_download(timeout=10000) as hist_dl_info:
@@ -307,31 +307,61 @@ def test_phase4_real_browser_master_export_and_download():
             assert hist_saved.is_file() and hist_saved.stat().st_size > 1000
 
             # Step 15: Security & Isolation checks via HTTP client
-            # Extract download URL
-            parsed_href = href
-            if not parsed_href.startswith("http"):
-                parsed_href = f"{base_url}{parsed_href}"
+            # Query latest export from SQLite database
+            conn_sec = sqlite3.connect(str(db_file))
+            cur_sec = conn_sec.cursor()
+            cur_sec.execute("SELECT id, project_id FROM project_exports ORDER BY created_at DESC LIMIT 1")
+            last_export_row = cur_sec.fetchone()
+            assert last_export_row is not None, "No export record found in DB"
+            latest_exp_id, latest_proj_id = last_export_row
+            conn_sec.close()
 
-            # 15a. Valid authenticated request -> 200 OK + attachment header
-            req_valid = urllib.request.Request(parsed_href)
+            alice_token = create_access_token({"sub": user_id, "username": "studio_qa_lead", "role": "admin"})
+            bob_token = create_access_token({"sub": "user_bob_403", "username": "author_bob", "role": "editor"})
+
+            endpoint_url = f"{base_url}/api/v1/projects/{latest_proj_id}/exports/{latest_exp_id}/download"
+
+            # 15a. Valid authenticated request with Bearer header -> 200 OK + attachment + cache-control
+            req_valid = urllib.request.Request(
+                endpoint_url,
+                headers={"Authorization": f"Bearer {alice_token}"},
+            )
             with urllib.request.urlopen(req_valid) as resp:
                 assert resp.status == 200
                 cd_header = resp.headers.get("Content-Disposition", "")
                 assert "attachment;" in cd_header
-                assert ".wav" in cd_header
+                assert "no-store" in resp.headers.get("Cache-Control", "")
 
-            # 15b. Unauthenticated request (strip token query param) -> 401 Unauthorized
-            unauth_url = parsed_href.split("?")[0]
+            # 15b. Security enforcement (CWE-598): Query parameter '?token=' MUST be rejected with HTTP 400
+            query_token_url = f"{endpoint_url}?token={alice_token}"
+            req_prohibited = urllib.request.Request(
+                query_token_url,
+                headers={"Authorization": f"Bearer {alice_token}"},
+            )
+            with pytest.raises(urllib.error.HTTPError) as exc_400:
+                urllib.request.urlopen(req_prohibited)
+            assert exc_400.value.code == 400, f"Expected 400 Bad Request, got {exc_400.value.code}"
+            err_body = json.loads(exc_400.value.read().decode("utf-8"))
+            assert err_body.get("code") == "QUERY_AUTH_PROHIBITED"
+
+            # 15c. Unauthenticated request without headers -> 401 Unauthorized
+            req_unauth = urllib.request.Request(endpoint_url)
             with pytest.raises(urllib.error.HTTPError) as exc_401:
-                urllib.request.urlopen(unauth_url)
+                urllib.request.urlopen(req_unauth)
             assert exc_401.value.code == 401, f"Expected 401, got {exc_401.value.code}"
 
-            # 15c. Cross-user access with unauthorized token -> 403 Forbidden
-            bob_token = create_access_token({"sub": "user_bob_403", "username": "author_bob", "role": "editor"})
-            cross_url = f"{unauth_url}?token={bob_token}"
+            # 15d. Cross-user access with Bob's token in Header -> 403 Forbidden
+            req_cross = urllib.request.Request(
+                endpoint_url,
+                headers={"Authorization": f"Bearer {bob_token}"},
+            )
             with pytest.raises(urllib.error.HTTPError) as exc_403:
-                urllib.request.urlopen(cross_url)
+                urllib.request.urlopen(req_cross)
             assert exc_403.value.code == 403, f"Expected 403, got {exc_403.value.code}"
+
+            # 15e. Verify that NO network request during browser operation leaked token in URL
+            token_leaks = [u for u in requested_urls if "token=" in u]
+            assert not token_leaks, f"Security violation: Token leaked in URLs: {token_leaks}"
 
             browser.close()
 

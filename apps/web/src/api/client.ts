@@ -588,12 +588,53 @@ class ApiClient {
     });
   }
 
-  getMasterExportDownloadUrl(exportId: string, projectId?: string): string {
-    const tokenParam = this.token ? `?token=${encodeURIComponent(this.token)}` : '';
-    if (projectId) {
-      return `/api/v1/projects/${projectId}/exports/${exportId}/download${tokenParam}`;
+  async downloadMasterAudio(projectId: string, exportId: string, fallbackFilename?: string): Promise<void> {
+    const url = `/api/v1/projects/${projectId}/exports/${exportId}/download`;
+    const headers: Record<string, string> = {};
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`;
     }
-    return `/api/v1/projects/exports/${exportId}/download${tokenParam}`;
+
+    const res = await fetch(url, {
+      method: 'GET',
+      headers,
+    });
+
+    if (!res.ok) {
+      let problem: ApiProblemError;
+      try {
+        problem = await res.json();
+      } catch {
+        problem = {
+          title: res.statusText,
+          status: res.status,
+          detail: 'Failed to download master audio export.',
+          code: `HTTP_${res.status}`,
+        };
+      }
+      throw new ApiError(problem);
+    }
+
+    let filename = fallbackFilename || `master_export_${exportId.slice(0, 8)}.wav`;
+    const disposition = res.headers.get('Content-Disposition');
+    if (disposition) {
+      const match = disposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+      if (match && match[1]) {
+        filename = match[1].replace(/['"]/g, '').trim();
+      }
+    }
+
+    const blob = await res.blob();
+    const blobUrl = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = blobUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => {
+      window.URL.revokeObjectURL(blobUrl);
+    }, 5000);
   }
 }
 

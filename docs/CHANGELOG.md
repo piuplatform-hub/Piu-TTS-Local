@@ -1,5 +1,23 @@
 # Documentation changelog
 
+## 2026-10-09 — Phase 4 Security Hotfix R2: Remove JWT Query Authentication from Master Audio Downloads (Independent Security PASS)
+
+- **CWE-598 Remediation (Removal of Query Parameter Authentication):**
+  - Removed `get_current_user_flexible` completely from `apps/server/src/services/auth_service.py`.
+  - Reverted authentication dependency on Master Audio download endpoint (`download_master_audio` in `apps/server/src/api/v1/projects.py`) and Artifact download endpoint (`get_artifact_audio_file` in `apps/server/src/api/v1/artifacts.py`) strictly to `current_user: User = Depends(get_current_user)`.
+  - Added strict guardrail rejecting any request containing `token` in URL query parameters with HTTP 400 Bad Request (`QUERY_AUTH_PROHIBITED`), preventing credential leakage in access logs, proxy logs, and browser history.
+  - Added security response headers: `Cache-Control: private, no-cache, no-store, must-revalidate` and `Pragma: no-cache`.
+- **Frontend Secure Fetch & Blob URL Download Flow:**
+  - Removed `getMasterExportDownloadUrl` from `apps/web/src/api/client.ts`.
+  - Implemented `downloadMasterAudio(projectId, exportId, fallbackFilename)` utilizing `fetch()` with standard `Authorization: Bearer <token>` header, parsing `Content-Disposition`, constructing an in-memory `Blob` object, generating a short-lived Object URL (`URL.createObjectURL`), programmatically triggering download, and revoking the Object URL with `URL.revokeObjectURL`.
+  - Converted download anchors (`<a>`) in `apps/web/src/components/MasterExportModal.tsx` to `<button>` elements calling `handleDownload`, ensuring no JWT appears in DOM attributes.
+  - Successfully recompiled frontend production bundle (`apps/web/dist`) via `npm run build`.
+- **Test Suite Updates & Security Regression:**
+  - Updated `tests/integration/test_projects_api.py`: verified header Bearer downloads succeed with `no-store` cache header, verified query token requests are rejected with 400 `QUERY_AUTH_PROHIBITED`, verified cross-user 403 and unauthenticated 401.
+  - Updated `tests/e2e/test_phase4_ui_export_download_ci.py`: verified Playwright browser download via buttons, verified 0 requests contained `token=` query parameter, verified 400 `QUERY_AUTH_PROHIBITED` on direct query access.
+- **Independent Security Review Deliverable Published:**
+  - `docs/reports/reviews/PHASE_04_SECURITY_HOTFIX_R2.md`.
+
 ## 2026-10-08 — Phase 4 Final UI Acceptance Gate: Browser Master Export & Download Verified (Independent PASS)
 
 - **Root Cause Resolution for Browser Audio Download:**

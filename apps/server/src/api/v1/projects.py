@@ -14,7 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...database import get_db
 from apps.server.src.models.user import User
 from apps.server.src.models.export import ProjectExportRecord
-from apps.server.src.services.auth_service import get_current_user, get_current_user_flexible
+from apps.server.src.core.errors import AppException
+from apps.server.src.services.auth_service import get_current_user
 from apps.server.src.services.project_service import ProjectService
 from apps.server.src.services.text_segmenter import TextSegmenter
 from apps.server.src.services.audio_dsp_service import AudioDspService
@@ -277,14 +278,24 @@ async def export_master_audio(
 async def download_master_audio(
     export_id: str,
     project_id: Optional[str] = None,
-    current_user: User = Depends(get_current_user_flexible),
+    token: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
     Downloads an exported master audio file.
-    Supports both Authorization header and '?token=' query parameter for seamless browser downloads.
+    Secured strictly via 'Authorization: Bearer <token>' header.
+    Rejects any query parameter authentication (CWE-598) with HTTP 400.
     Strictly verifies user ownership and isolates cross-user access.
     """
+    if token is not None:
+        raise AppException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            title="Query Authentication Prohibited",
+            detail="Passing authentication tokens in URL query strings is prohibited for security reasons (CWE-598). Use 'Authorization: Bearer <token>' header.",
+            code="QUERY_AUTH_PROHIBITED",
+        )
+
     stmt = (
         select(ProjectExportRecord)
         .where(ProjectExportRecord.id == export_id)
@@ -316,5 +327,7 @@ async def download_master_audio(
         filename=filename,
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "private, no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
         },
     )

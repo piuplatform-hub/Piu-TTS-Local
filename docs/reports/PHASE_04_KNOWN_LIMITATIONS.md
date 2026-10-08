@@ -36,12 +36,12 @@
 
 ---
 
-### 5. AN TOÀN TRUY CẬP VÀ PHẠM VI BẢO MẬT (LOCAL-FIRST ONLY)
+### 5. AN TOÀN TRUY CẬP VÀ PHẠM VI BẢO MẬT (LOCAL-FIRST & HEADER-ONLY AUTH)
 - **Ranh giới**: Ứng dụng tuân thủ nghiêm ngặt mô hình Local-First:
   - Chỉ lắng nghe trên giao diện cục bộ `127.0.0.1`.
   - Nghiêm cấm mở cổng lắng nghe mạng LAN (`0.0.0.0`) hoặc phơi bày ra Internet trong Phase 4.
-  - Mọi thao tác quản trị, dự án và tổng hợp TTS đều yêu cầu xác thực JWT Bearer Token qua header `Authorization: Bearer <token>`.
-  - Riêng endpoint tải tệp Master Audio (`/api/v1/projects/exports/{id}/download`), hệ thống hỗ trợ tham số truy vấn an toàn `?token=<jwt>` độc quyền cho thao tác nhấp tải xuống của thẻ liên kết HTML `<a>` phía trình duyệt (do thẻ `<a download>` không thể gửi kèm HTTP headers tùy biến). Tham số này được kiểm tra quyền sở hữu tệp nghiêm ngặt và không áp dụng cho các API nghiệp vụ khác.
+  - Mọi thao tác quản trị, dự án, tổng hợp TTS, và tải tệp Master Audio / Artifact đều yêu cầu xác thực JWT Bearer Token qua header `Authorization: Bearer <token>`.
+  - Tuyệt đối nghiêm cấm việc truyền token qua tham số truy vấn URL (`?token=`) trên mọi endpoint (tuân thủ triệt để CWE-598). Bất kỳ yêu cầu nào chứa token trong URL query parameter đều bị từ chối với HTTP 400 (`QUERY_AUTH_PROHIBITED`). Trên giao diện người dùng, thao tác tải tệp Master Audio được thực hiện an toàn thông qua Fetch API với Blob URL tạm thời (`URL.createObjectURL`), đảm bảo token không bao giờ bị lưu vào lịch sử trình duyệt hay log web server.
 
 ---
 

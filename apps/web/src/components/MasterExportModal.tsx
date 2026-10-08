@@ -23,6 +23,24 @@ export const MasterExportModal: React.FC<MasterExportModalProps> = ({
   const [exporting, setExporting] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [lastExport, setLastExport] = useState<ProjectExport | null>(null);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+
+  const handleDownload = async (exportId: string, exportFormat: string) => {
+    try {
+      setDownloadingId(exportId);
+      const safeTitle = project.title.replace(/[^a-zA-Z0-9_\-]/g, '_');
+      const filename = `${safeTitle}_${exportId.slice(0, 8)}.${exportFormat.toLowerCase()}`;
+      await api.downloadMasterAudio(project.id, exportId, filename);
+    } catch (err: any) {
+      if (err instanceof ApiError) {
+        setError(err.problem.detail || err.message);
+      } else {
+        setError(err.message || 'Lỗi khi tải tệp âm thanh');
+      }
+    } finally {
+      setDownloadingId(null);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -232,14 +250,15 @@ export const MasterExportModal: React.FC<MasterExportModalProps> = ({
                 </div>
               </div>
               <div className="pt-2">
-                <a
-                  href={api.getMasterExportDownloadUrl(lastExport.id, project.id)}
-                  download
-                  className="inline-flex items-center space-x-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold shadow-md transition-colors"
+                <button
+                  type="button"
+                  onClick={() => handleDownload(lastExport.id, lastExport.format)}
+                  disabled={downloadingId === lastExport.id}
+                  className="inline-flex items-center space-x-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg text-xs font-semibold shadow-md transition-colors cursor-pointer"
                 >
                   <Download className="w-4 h-4" />
                   <span>Tải File Âm Thanh Master Ngay ({lastExport.format.toUpperCase()})</span>
-                </a>
+                </button>
               </div>
             </div>
           )}
@@ -271,14 +290,15 @@ export const MasterExportModal: React.FC<MasterExportModalProps> = ({
                       <span className="text-slate-400 font-mono text-[11px]">
                         {exp.duration_seconds.toFixed(1)}s • {formatFileSize(exp.file_size_bytes)}
                       </span>
-                      <a
-                        href={api.getMasterExportDownloadUrl(exp.id, project.id)}
-                        download
-                        className="p-1.5 rounded-md bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors"
+                      <button
+                        type="button"
+                        onClick={() => handleDownload(exp.id, exp.format)}
+                        disabled={downloadingId === exp.id}
+                        className="p-1.5 rounded-md bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-slate-200 transition-colors cursor-pointer"
                         title="Tải về"
                       >
                         <Download className="w-3.5 h-3.5" />
-                      </a>
+                      </button>
                     </div>
                   </div>
                 ))}
