@@ -159,7 +159,7 @@ class DurableQueueService:
 
             for candidate in candidates:
                 res_type = candidate.resource_type or "cpu"
-                if not await resource_manager.can_acquire(res_type):
+                if not await resource_manager.can_acquire(res_type, session, exclude_job_id=candidate.id):
                     # Update waiting reason if not already set
                     if candidate.waiting_reason != f"Awaiting {res_type.upper()} slot":
                         candidate.waiting_reason = f"Awaiting {res_type.upper()} slot"
@@ -189,7 +189,7 @@ class DurableQueueService:
                 claim_res = await session.execute(claim_stmt)
                 if claim_res.rowcount == 1:
                     # Acquired in database! Now acquire slot in resource manager
-                    slot_acquired = await resource_manager.acquire(res_type, candidate.id)
+                    slot_acquired = await resource_manager.acquire(res_type, candidate.id, session)
                     if not slot_acquired:
                         # Rollback db claim if slot acquisition failed (defensive)
                         await session.rollback()

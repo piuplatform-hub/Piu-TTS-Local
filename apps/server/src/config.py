@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     MAX_CONCURRENT_CPU_JOBS: int = 1
     ENABLE_GPU_INFERENCE: bool = False
 
+    # Scheduler Execution Mode (True: runs inside FastAPI lifespan; False: external runner.py)
+    EMBEDDED_SCHEDULER: bool = True
+
     def get_data_dir(self) -> Path:
         """
         Returns resolved data directory path. Creates subdirectories if they don't exist.

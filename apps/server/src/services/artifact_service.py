@@ -103,3 +103,28 @@ class ArtifactService:
             )
 
         return record
+
+    @staticmethod
+    async def delete_artifact(
+        db: AsyncSession,
+        artifact_id: str,
+    ) -> bool:
+        """
+        Deletes artifact record from database and removes underlying audio file from disk.
+        """
+        stmt = select(ArtifactRecord).where(ArtifactRecord.id == artifact_id)
+        res = await db.execute(stmt)
+        record = res.scalar_one_or_none()
+        if not record:
+            return False
+
+        file_p = Path(record.file_path)
+        if file_p.exists():
+            try:
+                file_p.unlink()
+            except Exception:
+                pass
+
+        await db.delete(record)
+        await db.commit()
+        return True

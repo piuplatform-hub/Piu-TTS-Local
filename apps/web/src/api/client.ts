@@ -152,18 +152,21 @@ class ApiClient {
   }
 
   /**
-   * Connects to Server-Sent Events (SSE) stream for a job with automatic query token auth
-   * and polling fallback. Returns a cleanup unsubscribe function.
+   * Connects to Server-Sent Events (SSE) stream using Fetch API and ReadableStream
+   * with standard 'Authorization: Bearer <token>' header. Tokens are NEVER placed in URLs (CWE-598).
+   * Supports Last-Event-ID replay, automatic reconnect on drop, and polling fallback.
    */
   connectJobEvents(
     jobId: string,
     onEvent: (event: any) => void,
     onError?: (error: any) => void,
-    lastEventId?: number
+    initialLastEventId?: number
   ): () => void {
     let closed = false;
-    let eventSource: EventSource | null = null;
+    let abortController: AbortController | null = null;
     let pollInterval: number | null = null;
+    let currentLastEventId = initialLastEventId;
+    let reconnectTimeout: number | null = null;
 
     const startPollingFallback = () => {
       if (closed || pollInterval !== null) return;
@@ -184,56 +187,109 @@ class ApiClient {
       }, 1000);
     };
 
-    try {
-      const token = this.getToken() || '';
-      const queryParams = new URLSearchParams({ token });
-      if (lastEventId !== undefined && lastEventId !== null) {
-        queryParams.set('last_event_id', lastEventId.toString());
+    const startFetchStream = async () => {
+      if (closed) return;
+      abortController = new AbortController();
+
+      const headers: Record<string, string> = {
+        'Accept': 'text/event-stream',
+      };
+      if (this.token) {
+        headers['Authorization'] = `Bearer ${this.token}`;
+      }
+      if (currentLastEventId !== undefined && currentLastEventId !== null) {
+        headers['Last-Event-ID'] = currentLastEventId.toString();
       }
 
-      const sseUrl = `/api/v1/jobs/${jobId}/events?${queryParams.toString()}`;
-      eventSource = new EventSource(sseUrl);
-
-      const eventTypes = ['status_change', 'progress', 'heartbeat', 'completed', 'failed', 'cancelled'];
-      eventTypes.forEach((type) => {
-        eventSource!.addEventListener(type, (e: MessageEvent) => {
-          if (closed) return;
-          try {
-            const data = JSON.parse(e.data);
-            onEvent({
-              id: e.lastEventId ? parseInt(e.lastEventId, 10) : undefined,
-              event_type: type,
-              data,
-            });
-            if (['completed', 'failed', 'cancelled'].includes(type)) {
-              if (eventSource) eventSource.close();
-            }
-          } catch (err) {
-            console.error('Failed to parse SSE payload', err);
-          }
+      try {
+        const url = `/api/v1/jobs/${jobId}/events${currentLastEventId ? `?last_event_id=${currentLastEventId}` : ''}`;
+        const response = await fetch(url, {
+          method: 'GET',
+          headers,
+          signal: abortController.signal,
         });
-      });
 
-      eventSource.onerror = (e) => {
-        if (closed) return;
-        console.warn('SSE stream error, switching to polling fallback', e);
-        if (onError) onError(e);
-        if (eventSource) {
-          eventSource.close();
-          eventSource = null;
+        if (!response.ok || !response.body) {
+          throw new Error(`SSE fetch failed with status ${response.status}`);
         }
-        startPollingFallback();
-      };
-    } catch (e) {
-      console.warn('Failed to initialize EventSource, using polling fallback', e);
-      startPollingFallback();
-    }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let buffer = '';
+
+        while (!closed) {
+          const { value, done } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const blocks = buffer.split('\n\n');
+          // Retain any incomplete trailing chunk in buffer
+          buffer = blocks.pop() || '';
+
+          for (const block of blocks) {
+            if (!block.trim()) continue;
+            let eventType = 'message';
+            let eventData = '';
+            let eventId: number | undefined;
+
+            for (const line of block.split('\n')) {
+              if (line.startsWith('event:')) {
+                eventType = line.slice(6).trim();
+              } else if (line.startsWith('data:')) {
+                eventData = line.slice(5).trim();
+              } else if (line.startsWith('id:')) {
+                const idVal = line.slice(3).trim();
+                if (idVal) {
+                  eventId = parseInt(idVal, 10);
+                  currentLastEventId = eventId;
+                }
+              }
+            }
+
+            if (eventData) {
+              try {
+                const parsed = JSON.parse(eventData);
+                onEvent({
+                  id: eventId,
+                  event_type: eventType,
+                  data: parsed,
+                });
+                if (['completed', 'failed', 'cancelled'].includes(eventType)) {
+                  closed = true;
+                  return;
+                }
+              } catch (err) {
+                console.error('Failed to parse SSE JSON payload', err);
+              }
+            }
+          }
+        }
+      } catch (err: any) {
+        if (closed || err?.name === 'AbortError') return;
+        console.warn('Fetch SSE stream interrupted, reconnecting or falling back', err);
+        if (onError) onError(err);
+
+        if (!closed) {
+          reconnectTimeout = window.setTimeout(() => {
+            if (!closed) {
+              startFetchStream().catch(() => startPollingFallback());
+            }
+          }, 1500);
+        }
+      }
+    };
+
+    startFetchStream();
 
     return () => {
       closed = true;
-      if (eventSource) {
-        eventSource.close();
-        eventSource = null;
+      if (abortController) {
+        abortController.abort();
+        abortController = null;
+      }
+      if (reconnectTimeout !== null) {
+        clearTimeout(reconnectTimeout);
+        reconnectTimeout = null;
       }
       if (pollInterval !== null) {
         clearInterval(pollInterval);

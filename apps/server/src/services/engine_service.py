@@ -15,7 +15,7 @@ from engine_sdk.manifest import EngineManifest
 
 class EngineService:
     @staticmethod
-    async def discover_and_register_engines(db: AsyncSession, workspace_root: Path):
+    async def discover_and_register_engines(db: AsyncSession, workspace_root: Path, spawn_workers: bool = True):
         engines_dir = workspace_root / "engines"
         if not engines_dir.exists():
             return
@@ -26,8 +26,9 @@ class EngineService:
                 if manifest_file.exists():
                     try:
                         manifest = EngineManifest.from_file(str(manifest_file))
-                        # Start worker subprocess via supervisor if not running
-                        await supervisor.start_worker(manifest=manifest, workspace_root=workspace_root)
+                        # Start worker subprocess via supervisor if requested and not running
+                        if spawn_workers:
+                            await supervisor.start_worker(manifest=manifest, workspace_root=workspace_root)
 
                         # Sync with database registry
                         stmt = select(EngineRecord).where(EngineRecord.id == manifest.engine_id)

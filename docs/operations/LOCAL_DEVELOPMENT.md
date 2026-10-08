@@ -62,13 +62,25 @@ Chạy 2 terminal riêng biệt:
   ```
   Truy cập: **http://localhost:5173** (Yêu cầu API sẽ tự động proxy sang cổng 8765).
 
+### Chế độ C: Tiến trình Độc lập (Standalone Runner Mode)
+Tách biệt hoàn toàn API Server và Durable Job Scheduler thành hai tiến trình riêng biệt:
+- **Terminal 1 (API Server - Không chạy scheduler nội bộ):**
+  ```powershell
+  $env:STUDIO_EMBEDDED_SCHEDULER="false"
+  .venv\Scripts\python -m apps.server.src.main
+  ```
+- **Terminal 2 (Standalone Runner Process):**
+  ```powershell
+  .venv\Scripts\python -m apps.server.src.runner --poll-interval 0.5 --lease-seconds 30
+  ```
+
 ---
 
 ## 4. CHẠY BỘ KIỂM THỬ TỰ ĐỘNG (TEST SUITE)
 
-Để chạy kiểm thử toàn bộ hệ thống (Hợp đồng Engine, Xác thực Onboarding, Luồng Job, Chịu lỗi Supervisor, Phục vụ SPA):
+Để chạy kiểm thử toàn bộ hệ thống (Hợp đồng Engine, Xác thực Onboarding, Luồng Job, Chịu lỗi Supervisor, Phục vụ SPA, Khả năng chịu lỗi đa tiến trình):
 ```powershell
-.venv\Scripts\pytest -v tests/
+.venv\Scripts\pytest -v
 ```
 
 Chạy kiểm thử riêng từng module:
@@ -76,8 +88,14 @@ Chạy kiểm thử riêng từng module:
 # Chỉ kiểm thử hợp đồng Mock Engine
 .venv\Scripts\pytest -v tests/contract/
 
-# Chỉ kiểm thử tích hợp API và khả năng chịu lỗi
-.venv\Scripts\pytest -v tests/integration/
+# Kiểm thử hàng đợi bền vững
+.venv\Scripts\pytest -v tests/integration/test_durable_jobs.py
+
+# Kiểm thử khả năng chịu lỗi sự cố và sao lưu WAL
+.venv\Scripts\pytest -v tests/integration/test_process_resilience.py
+
+# Kiểm thử giao diện trình duyệt thực tế E2E Playwright
+.venv\Scripts\pytest -v tests/e2e/test_browser_e2e.py
 ```
 
 ---
@@ -100,4 +118,25 @@ D:\AIVoiceStudioData/
 Để thay đổi đường dẫn lưu trữ dữ liệu, sao chép `.env.example` thành `.env` và điều chỉnh biến:
 ```env
 STUDIO_DATA_DIR="C:\\Path\\To\\Your\\Data"
+STUDIO_EMBEDDED_SCHEDULER="true"
+```
+
+---
+
+## 6. QUẢN LÝ SAO LƯU & KHÔI PHỤC CƠ SỞ DỮ LIỆU (SQLITE ONLINE BACKUP)
+
+Tuyệt đối **không** dùng lệnh copy file OS đối với `studio.db` khi hệ thống đang ghi nhật ký WAL. Sử dụng CLI sao lưu trực tuyến an toàn:
+
+```powershell
+# 1. Tạo bản sao lưu trực tuyến (Online Backup) có kiểm tra tính toàn vẹn:
+.venv\Scripts\python -m apps.server.src.backup create
+
+# 2. Kiểm toán toàn bộ các bản sao lưu hiện có trong thư mục dữ liệu:
+.venv\Scripts\python -m apps.server.src.backup audit
+
+# 3. Kiểm tra tính toàn vẹn của một tệp sao lưu cụ thể:
+.venv\Scripts\python -m apps.server.src.backup verify D:\AIVoiceStudioData\backups\studio_backup.db
+
+# 4. Khôi phục cơ sở dữ liệu từ bản sao lưu (tự động tạo bản sao an toàn trước khi khôi phục):
+.venv\Scripts\python -m apps.server.src.backup restore D:\AIVoiceStudioData\backups\studio_backup.db
 ```

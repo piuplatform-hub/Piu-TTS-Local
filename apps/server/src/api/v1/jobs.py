@@ -13,7 +13,7 @@ from ...database import get_db
 from ...models.user import User
 from ...models.job import JobRecord
 from ...schemas.job import TTSJobSubmitRequest, JobResponse
-from ...services.auth_service import get_current_user, get_user_from_token_str
+from ...services.auth_service import get_current_user
 from ...services.job_service import JobService
 from ...services.event_service import event_service
 from ...core.errors import AppException
@@ -112,36 +112,28 @@ async def retry_job(
 @router.get("/{job_id}/events")
 async def stream_job_events(
     job_id: str,
-    token: Optional[str] = Query(None),
+    token: Optional[str] = Query(None, description="Prohibited for security. Tokens must not be in URLs."),
     last_event_id: Optional[int] = Query(None),
     last_event_id_header: Optional[int] = Header(None, alias="Last-Event-ID"),
-    authorization: Optional[str] = Header(None),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
     Server-Sent Events (SSE) streaming endpoint for live job status and progress.
-    Supports query parameter authentication for browser EventSource API
-    and Last-Event-ID replay for disconnected clients.
+    Requires standard 'Authorization: Bearer <token>' header.
+    Authentication via URL query parameters is strictly prohibited (CWE-598).
+    Supports Last-Event-ID replay for disconnected clients.
     """
-    # 1. Resolve Auth Token
-    token_str: Optional[str] = None
-    if authorization and authorization.lower().startswith("bearer "):
-        token_str = authorization[7:].strip()
-    elif token:
-        token_str = token.strip()
-
-    if not token_str:
+    # 1. Prohibit credentials in URL query parameters
+    if token:
         raise AppException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            title="Authentication Required",
-            detail="Missing Bearer token in Authorization header or 'token' query parameter.",
-            code="UNAUTHORIZED",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            title="Query Token Prohibited",
+            detail="Passing authentication tokens in URL query strings is prohibited for security reasons (CWE-598). Use 'Authorization: Bearer <token>' header.",
+            code="QUERY_AUTH_PROHIBITED",
         )
 
-    # 2. Authenticate User
-    current_user = await get_user_from_token_str(token_str, db)
-
-    # 3. Check Job Access
+    # 2. Check Job Access and Ownership
     await JobService.get_job(db, job_id, current_user)
 
     effective_last_event_id = last_event_id if last_event_id is not None else last_event_id_header

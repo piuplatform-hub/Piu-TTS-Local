@@ -7,6 +7,7 @@ and monitors heartbeat/lease expirations. Runs inside FastAPI lifespan.
 import asyncio
 from datetime import datetime, timezone
 import logging
+import os
 from typing import Dict, Optional, Set
 
 from engine_sdk.protocol import SynthesisRequest
@@ -23,9 +24,15 @@ logger = logging.getLogger("studio.scheduler")
 
 
 class DurableJobScheduler:
-    def __init__(self, poll_interval_seconds: float = 0.5, lease_seconds: int = 30):
+    def __init__(
+        self,
+        poll_interval_seconds: float = 0.5,
+        lease_seconds: int = 30,
+        worker_id: Optional[str] = None,
+    ):
         self.poll_interval = poll_interval_seconds
         self.lease_seconds = lease_seconds
+        self.worker_id = worker_id or f"scheduler-{os.getpid()}"
         self._running = False
         self._loop_task: Optional[asyncio.Task] = None
         self._active_tasks: Set[asyncio.Task] = set()
@@ -40,6 +47,7 @@ class DurableJobScheduler:
         if self._running:
             return
         self._running = True
+        self._wake_event = asyncio.Event()
 
         # Perform crash & restart recovery for stranded jobs
         recovered = await DurableQueueService.recover_on_startup()
@@ -80,7 +88,7 @@ class DurableJobScheduler:
 
                 # 2. Attempt to claim next ready job
                 claimed_job = await DurableQueueService.claim_next_job(
-                    worker_id="scheduler-daemon",
+                    worker_id=self.worker_id,
                     lease_duration_seconds=self.lease_seconds,
                 )
 
@@ -141,7 +149,7 @@ class DurableJobScheduler:
             await DurableQueueService.mark_running(
                 job_id=job_id,
                 attempt_id=attempt_id,
-                worker_id="scheduler-daemon",
+                worker_id=self.worker_id,
             )
 
             # 2. Fetch worker client

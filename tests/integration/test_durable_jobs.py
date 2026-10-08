@@ -362,7 +362,8 @@ async def test_09_server_restart_recovery(test_env, running_mock_engine):
 
 @pytest.mark.asyncio
 async def test_10_resource_limits_and_waiting_reason(test_env, running_mock_engine):
-    """10. Resource limits: GPU slot limit prevents concurrent GPU jobs; queued jobs wait with reason."""
+    from apps.server.src.supervisor.scheduler import scheduler
+    await scheduler.stop()
     await resource_manager.reset()
 
     # Manually occupy GPU slot
@@ -423,32 +424,67 @@ async def test_11_sse_event_streaming_and_replay(test_env, running_mock_engine):
 
 
 @pytest.mark.asyncio
-async def test_12_sse_query_param_authentication(client, running_mock_engine):
-    """12. SSE auth: query param token authentication works for EventSource."""
+async def test_12_sse_strict_authorization_and_query_token_prohibition(client, running_mock_engine):
+    """12. SSE auth: query param tokens are prohibited (CWE-598); Authorization header is enforced."""
     token = get_or_create_bootstrap_token()
     boot_res = await client.post(
         "/api/v1/auth/bootstrap",
         json={"username": "sse_admin", "password": "Password12345!", "setup_token": token},
     )
-    jwt_token = boot_res.json()["access_token"]
-    headers = {"Authorization": f"Bearer {jwt_token}"}
+    admin_token = boot_res.json()["access_token"]
+    admin_headers = {"Authorization": f"Bearer {admin_token}"}
 
-    # Create a job
+    # Admin provisions User A
+    user_a_res = await client.post(
+        "/api/v1/auth/users",
+        headers=admin_headers,
+        json={"username": "alice_sse", "password": "AlicePassword123!", "role": "editor"},
+    )
+    assert user_a_res.status_code == 201
+
+    login_a = await client.post("/api/v1/auth/login", json={"username": "alice_sse", "password": "AlicePassword123!"})
+    token_a = login_a.json()["access_token"]
+    headers_a = {"Authorization": f"Bearer {token_a}"}
+
+    # User A creates a job
     job_res = await client.post(
         "/api/v1/jobs/speech",
-        headers=headers,
-        json={"text": "SSE Auth", "engine_id": "mock-tts", "language": "vi"},
+        headers=headers_a,
+        json={"text": "SSE Auth Test", "engine_id": "mock-tts", "language": "vi"},
     )
     job_id = job_res.json()["id"]
 
-    # Access SSE stream via query parameter ?token=... (no Authorization header)
-    sse_res = await client.get(f"/api/v1/jobs/{job_id}/events?token={jwt_token}")
-    assert sse_res.status_code == 200
-    assert "text/event-stream" in sse_res.headers.get("content-type", "")
+    # 1. Access SSE stream via standard Authorization header -> SUCCESS (200)
+    async with client.stream("GET", f"/api/v1/jobs/{job_id}/events", headers=headers_a) as sse_res:
+        assert sse_res.status_code == 200
+        assert "text/event-stream" in sse_res.headers.get("content-type", "")
 
-    # Access with invalid token -> 401
-    bad_sse = await client.get(f"/api/v1/jobs/{job_id}/events?token=invalid_token")
+    # 2. Attempt to pass credential via URL query param -> STRICTLY PROHIBITED (400 Bad Request)
+    prohibited_query = await client.get(f"/api/v1/jobs/{job_id}/events?token={token_a}", headers=headers_a)
+    assert prohibited_query.status_code == 400
+    assert prohibited_query.json()["code"] == "QUERY_AUTH_PROHIBITED"
+
+    # 3. Access without any credentials -> 401 Unauthorized
+    anon_sse = await client.get(f"/api/v1/jobs/{job_id}/events")
+    assert anon_sse.status_code == 401
+
+    # 4. Access with invalid credentials -> 401 Unauthorized
+    bad_sse = await client.get(f"/api/v1/jobs/{job_id}/events", headers={"Authorization": "Bearer invalid_jwt_token"})
     assert bad_sse.status_code == 401
+
+    # 5. User B cannot subscribe to User A's job -> 403 Forbidden
+    await client.post(
+        "/api/v1/auth/users",
+        headers=admin_headers,
+        json={"username": "bob_sse", "password": "BobPassword123!", "role": "editor"},
+    )
+    login_b = await client.post("/api/v1/auth/login", json={"username": "bob_sse", "password": "BobPassword123!"})
+    token_b = login_b.json()["access_token"]
+    headers_b = {"Authorization": f"Bearer {token_b}"}
+
+    cross_user_sse = await client.get(f"/api/v1/jobs/{job_id}/events", headers=headers_b)
+    assert cross_user_sse.status_code == 403
+
 
 
 @pytest.mark.asyncio

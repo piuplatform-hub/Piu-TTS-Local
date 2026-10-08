@@ -45,18 +45,22 @@ async def lifespan(app: FastAPI):
             print(f" Web UI: http://{settings.HOST}:{settings.PORT}")
             print("=" * 65 + "\n")
 
-        # Discover & spawn registered local inference engines
-        await EngineService.discover_and_register_engines(session, workspace_root)
+        # Discover & register local inference engines in DB
+        await EngineService.discover_and_register_engines(
+            session, workspace_root, spawn_workers=settings.EMBEDDED_SCHEDULER
+        )
 
-    # Start Durable Job Scheduler daemon
-    await scheduler.start()
+    # Start Durable Job Scheduler daemon if embedded mode is enabled
+    if settings.EMBEDDED_SCHEDULER:
+        await scheduler.start()
 
     yield
 
-    # Shutdown: Stop scheduler and cleanly terminate worker child processes
-    print("\nShutting down AI Voice Studio scheduler and worker processes...")
-    await scheduler.stop()
-    await supervisor.stop_all()
+    # Shutdown: Stop scheduler and cleanly terminate worker child processes if embedded
+    if settings.EMBEDDED_SCHEDULER:
+        print("\nShutting down AI Voice Studio scheduler and worker processes...")
+        await scheduler.stop()
+        await supervisor.stop_all()
 
 
 app = FastAPI(

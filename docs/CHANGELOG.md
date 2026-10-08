@@ -1,5 +1,15 @@
 # Documentation changelog
 
+## 2026-10-08 — Phase 2 Release Gate R1 Remediations Verified (Gate PASS)
+
+- **P0 Security Remediated:** Eliminated JWT token query string parameter in SSE endpoint (`CWE-598`). Replaced browser `EventSource` with custom native `fetch()` streaming reader using `Authorization: Bearer` and `Last-Event-ID` HTTP headers in `apps/web/src/api/client.ts`. Backend `apps/server/src/api/v1/jobs.py` strictly rejects `?token=...` with HTTP `400 Bad Request` (`QUERY_AUTH_PROHIBITED`).
+- **Decoupled Standalone Runner Process:** Added `apps/server/src/runner.py` allowing execution of `DurableJobScheduler` and inference worker supervision in an independent OS process separate from FastAPI. Added configuration setting `EMBEDDED_SCHEDULER` in `apps/server/src/config.py`. Proposed [ADR-0009](decisions/adr/ADR-0009-runner-process-and-online-backup.md).
+- **Database-Backed Multi-Process Hardware Slot Enforcement:** `ResourceManager` enforces strict global hardware limits (max 1 GPU, max 1 CPU) across processes by querying active SQLite unexpired leases with self-counting prevention (`exclude_job_id`).
+- **Safe SQLite Online Backup API & CLI Tool:** Created `BackupService` (`apps/server/src/services/backup_service.py`) and CLI `apps/server/src/backup.py` using `sqlite3.Connection.backup()` step-by-step (`pages=100`) for non-blocking live WAL backups. Verified `PRAGMA integrity_check` and safe restore. Audited existing database backups in `D:\AIVoiceStudioData` (`studio.db.phase1.bak` verified valid).
+- **Process Failure Resilience Test Suite:** Implemented `tests/integration/test_process_resilience.py` validating 6 core failure scenarios (A through F): subprocess kill & recovery, fencing token stale worker rejection, race cancellation vs completion with zero orphan artifacts, multi-runner GPU slot limits, SSE stream reconnection & replay, and online backup during active WAL writes.
+- **Automated Verification:** 34/34 tests passing (100%) in 22.62s; frontend production build cleanly regenerated (0 errors).
+- **Published Deliverables:** `PHASE_02_RELEASE_GATE_REVIEW.md`, `PHASE_02_RELEASE_GATE_EVIDENCE.md`, and `PHASE_02_REMEDIATION_CHANGELOG.md`.
+
 ## 2026-10-08 — Phase 2 Durable Job Orchestration & Production Resilience Completed
 
 - Backed up Phase 1 database: `D:\AIVoiceStudioData\studio.db.phase1.bak` and `D:\AIVoiceStudioData\backups\studio.db.phase1.bak`.
