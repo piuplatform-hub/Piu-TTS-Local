@@ -12,8 +12,12 @@
 | [0006](adr/ADR-0006-data-boundaries.md) | Data storage and backup | accepted | Configurable persistent data root; restore evidence | 2026-10-08 | Product Owner | PH1 |
 | [0007](adr/ADR-0007-plugin-capabilities.md) | Plugin SDK and trust | accepted | Capability manifest, vetted package, contract tests | 2026-10-08 | Product Owner | PH1 |
 | [0008](adr/ADR-0008-mcp-readiness.md) | Future MCP | accepted | Extension point only, independently authorized later | 2026-10-08 | Product Owner | PH6 |
+| [0009](adr/ADR-0009-runner-process-and-online-backup.md) | Standalone runner & online backup | accepted | Decoupled scheduler process + SQLite Online Backup API | 2026-10-08 | Product Owner | PH4 |
+| [0010](adr/ADR-0010-single-host-reverse-proxy-and-tls.md) | Reverse proxy & internal TLS | proposed | Caddy Server reverse proxy + automatic internal HTTPS | 2026-10-09 | Product Owner | PH5 |
+| [0011](adr/ADR-0011-multi-user-rbac-and-resource-fairness.md) | Multi-user RBAC & fair scheduling | proposed | Per-user round-robin + storage quotas + strict RBAC | 2026-10-09 | Product Owner | PH5 |
+| [0012](adr/ADR-0012-windows-service-and-process-lifecycle.md) | Windows services & recovery | proposed | WinSW wrapper + auto-restart + startup crash recovery | 2026-10-09 | Product Owner | PH5 |
 
 **Approval notes:**
 - Gate DOC is formally passed with Product Owner acceptance of the R1.1 baseline.
-- Technical performance, model quality, and Windows compatibility remain conditional/unverified until empirical measurement in Phase 1B.
-- Phase 1 implementation requires explicit authorization at Gate PH1.
+- Phase 0–4 baselines are fully accepted and verified (Git commit `24b3102`).
+- Phase 5 is in PLANNING GATE state (ADR-0010 through ADR-0012 are proposed awaiting Product Owner authorization).
