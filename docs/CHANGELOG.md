@@ -1,5 +1,13 @@
 # Documentation changelog
 
+## 2026-10-08 — Phase 1B Engine Feasibility & Hardware Benchmark Completed
+
+- Conducted pre-flight hardware and license verification for Intel Core i5-12400F and NVIDIA GeForce RTX 3050 (6GB VRAM) on Windows 11.
+- Created isolated environments and model storage outside application repository (`D:\AIVoiceStudioData\benchmarks\`).
+- Benchmarked VieNeu-TTS v3 Turbo on CPU (ONNX Runtime, torch-free): achieved RTF 0.55-0.75, 48kHz audio quality, 2.4GB peak RAM, zero memory leak across 5 repeated runs. Verdict: PASS.
+- Benchmarked Qwen3-TTS 0.6B CustomVoice on GPU (PyTorch CUDA, bfloat16): peak VRAM only 2.77GB (well within 6GB limit), 24kHz audio, 9 preset speakers, error recovery verified in 4.4s. Verdict: PASS.
+- Published benchmark deliverables: `PHASE_1B_ENVIRONMENT.md`, `VIENEU_BENCHMARK.md`, `QWEN3_BENCHMARK.md`, `PHASE_1B_COMPARISON.md`, and `PHASE_1B_FEASIBILITY_REPORT.md`.
+
 ## 2026-10-08 — Phase 1 Verification & Remediation Complete (Gate PH1 Ready)
 
 - Revoked and redacted exposed bootstrap credential; implemented 15-minute TTL and atomic OS-level file rename (`os.replace`) preventing concurrent onboarding race conditions.
