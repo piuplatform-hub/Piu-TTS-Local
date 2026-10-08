@@ -13,7 +13,7 @@ from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .config import settings
-from .database import init_db, AsyncSessionLocal
+from . import database
 from .core.errors import (
     AppException,
     app_exception_handler,
@@ -30,11 +30,11 @@ from .api.v1.router import api_v1_router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: Initialize DB schema
-    await init_db()
+    await database.init_db()
 
     workspace_root = Path(__file__).resolve().parents[3]
 
-    async with AsyncSessionLocal() as session:
+    async with database.AsyncSessionLocal() as session:
         auth_status = await AuthService.get_status(session)
         if auth_status["needs_onboarding"]:
             token = get_or_create_bootstrap_token()

@@ -269,7 +269,11 @@ export const StudioView: React.FC = () => {
 
               {/* Audio player if completed */}
               {currentJob.status === 'completed' && currentJob.artifact_id && (
-                <div className="pt-2">
+                <div className="pt-2 space-y-3">
+                  <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-amber-300 text-xs flex items-center space-x-2">
+                    <span className="font-semibold uppercase tracking-wider text-[10px] bg-amber-500/20 px-2 py-0.5 rounded">Contract Test</span>
+                    <span>Âm thanh tổng hợp kiểm thử hợp đồng PCM 16-bit. Chưa nạp trọng số AI neural (VieNeu/Qwen3).</span>
+                  </div>
                   <AudioPlayer artifactId={currentJob.artifact_id} />
                 </div>
               )}

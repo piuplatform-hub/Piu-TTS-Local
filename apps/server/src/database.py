@@ -56,3 +56,11 @@ async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
+
+def run_migrations():
+    """Applies versioned Alembic migrations up to head."""
+    from alembic.config import Config
+    from alembic import command
+    cfg = Config("alembic.ini")
+    command.upgrade(cfg, "head")
+

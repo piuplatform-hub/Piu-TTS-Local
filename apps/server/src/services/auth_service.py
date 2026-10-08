@@ -2,6 +2,7 @@
 Authentication & Authorization Service (Headless Core)
 """
 
+import asyncio
 from typing import Optional
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,7 +10,7 @@ from fastapi import Depends, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from ..models.user import User
-from ..schemas.auth import BootstrapRequest
+from ..schemas.auth import BootstrapRequest, UserCreateRequest
 from ..core.security import hash_password, verify_password, decode_access_token, consume_bootstrap_token
 from ..core.errors import AppException
 from ..database import get_db
@@ -18,6 +19,8 @@ security_scheme = HTTPBearer(auto_error=False)
 
 
 class AuthService:
+    _bootstrap_lock = asyncio.Lock()
+
     @staticmethod
     async def get_status(db: AsyncSession) -> dict:
         stmt = select(func.count(User.id))
@@ -28,42 +31,83 @@ class AuthService:
             "total_users": count,
         }
 
-    @staticmethod
-    async def bootstrap_admin(db: AsyncSession, req: BootstrapRequest) -> User:
-        # 1. Enforce atomic single-admin initialization
-        stmt = select(func.count(User.id))
-        result = await db.execute(stmt)
-        user_count = result.scalar() or 0
+    @classmethod
+    async def bootstrap_admin(cls, db: AsyncSession, req: BootstrapRequest) -> User:
+        async with cls._bootstrap_lock:
+            # 1. Enforce atomic single-admin initialization
+            stmt = select(func.count(User.id))
+            result = await db.execute(stmt)
+            user_count = result.scalar() or 0
 
-        if user_count > 0:
+            if user_count > 0:
+                raise AppException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    title="System Already Initialized",
+                    detail="An administrator account already exists. Onboarding is closed.",
+                    code="ALREADY_INITIALIZED",
+                )
+
+            # 2. Verify and atomically consume the one-time local setup token
+            if not consume_bootstrap_token(req.setup_token):
+                raise AppException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    title="Invalid Setup Token",
+                    detail="The provided setup token is invalid, expired, or has already been consumed.",
+                    code="INVALID_SETUP_TOKEN",
+                )
+
+            # 3. Create initial Admin with Argon2id hash
+            try:
+                hashed = hash_password(req.password)
+                admin_user = User(
+                    username=req.username.strip(),
+                    password_hash=hashed,
+                    role="admin",
+                    is_active=True,
+                )
+                db.add(admin_user)
+                await db.commit()
+                await db.refresh(admin_user)
+                return admin_user
+            except Exception as e:
+                await db.rollback()
+                raise AppException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    title="Initialization Failed",
+                    detail=f"Failed to record administrator user: {e}",
+                    code="BOOTSTRAP_DB_ERROR",
+                )
+
+    @staticmethod
+    async def create_user(db: AsyncSession, req: UserCreateRequest, current_user: User) -> User:
+        if current_user.role != "admin":
+            raise AppException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                title="Admin Privileges Required",
+                detail="Only administrators can provision new users.",
+                code="FORBIDDEN_USER_CREATION",
+            )
+
+        stmt = select(User).where(User.username == req.username.strip())
+        result = await db.execute(stmt)
+        if result.scalar_one_or_none():
             raise AppException(
                 status_code=status.HTTP_409_CONFLICT,
-                title="System Already Initialized",
-                detail="An administrator account already exists. Onboarding is closed.",
-                code="ALREADY_INITIALIZED",
+                title="Username Already Exists",
+                detail=f"User '{req.username}' already exists.",
+                code="USERNAME_EXISTS",
             )
 
-        # 2. Verify and atomically consume the one-time local setup token
-        if not consume_bootstrap_token(req.setup_token):
-            raise AppException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                title="Invalid Setup Token",
-                detail="The provided setup token is invalid, expired, or has already been consumed.",
-                code="INVALID_SETUP_TOKEN",
-            )
-
-        # 3. Create initial Admin with Argon2id hash
-        hashed = hash_password(req.password)
-        admin_user = User(
+        new_user = User(
             username=req.username.strip(),
-            password_hash=hashed,
-            role="admin",
+            password_hash=hash_password(req.password),
+            role=req.role,
             is_active=True,
         )
-        db.add(admin_user)
+        db.add(new_user)
         await db.commit()
-        await db.refresh(admin_user)
-        return admin_user
+        await db.refresh(new_user)
+        return new_user
 
     @staticmethod
     async def authenticate_user(db: AsyncSession, username: str, password: str) -> User:

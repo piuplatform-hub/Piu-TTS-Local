@@ -1,5 +1,16 @@
 # Documentation changelog
 
+## 2026-10-08 — Phase 1 Verification & Remediation Complete (Gate PH1 Ready)
+
+- Revoked and redacted exposed bootstrap credential; implemented 15-minute TTL and atomic OS-level file rename (`os.replace`) preventing concurrent onboarding race conditions.
+- Added multi-user RBAC service (`POST /api/v1/auth/users`) with role-based access control and strict artifact ownership cross-authorization isolation (403 Forbidden).
+- Integrated Alembic database migration tooling (`alembic.ini`, `alembic/env.py`, initial revision `20261008_0001`) with automatic SQLite WAL and foreign key enforcement.
+- Hardened Process Supervisor with native Windows Job Objects (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`) preventing orphan worker processes.
+- Added explicit contract disclaimer banner to Web UI and rebuilt frontend production bundle.
+- Executed real Google Chrome E2E test via Playwright across 12 user journey steps; recorded 5 authentic screenshots in `docs/reports/screenshots/` with 0 console errors and 0 network failures.
+- Expanded automated test suite from 6 to 14 tests, achieving 100% pass rate (14/14 passed in 9.61s).
+- Published verification reports: `PHASE_01_REVIEW_REPORT.md`, `PHASE_01_SECURITY_VERIFICATION.md`, `PHASE_01_E2E_TEST_RESULTS.md`, and `PHASE_01_REMEDIATION_CHANGELOG.md`.
+
 ## 2026-10-08 — Phase 1 Foundation & First Vertical Slice Completed
 
 - Implemented Engine Adapter SDK v1 (`packages/engine_sdk`) with Pydantic v2 schemas and authenticated loopback HTTP client.

@@ -33,10 +33,9 @@
 - Không hỗ trợ truy cập qua mạng LAN nội bộ hoặc Internet bên ngoài.
 - Không có cấu hình HTTPS/TLS cục bộ (vì chỉ phục vụ qua loopback).
 
-### 3.2. Mô hình Người dùng Đơn sơ cấp (Single-Admin Model)
-- Giai đoạn Phase 1 chỉ hỗ trợ khởi tạo một tài khoản quản trị viên sơ cấp duy nhất thông qua One-Time Bootstrap Token.
-- Chưa có giao diện quản lý đa người dùng, mời thành viên hoặc phân quyền vai trò phức tạp (RBAC mở rộng).
-- **Giai đoạn giải quyết:** Phase 4/Phase 5.
+### 3.2. Mô hình Quản lý Người dùng trên Giao diện (User Management UI)
+- Mặc dù API phân quyền RBAC và tạo người dùng (`POST /api/v1/auth/users`) đã được xây dựng và kiểm thử hoàn chỉnh tại tầng backend, giao diện Web Phase 1 hiện tại tập trung phục vụ luồng làm việc của quản trị viên (Single-Admin Studio Workflow).
+- Giao diện quản lý danh sách tài khoản, đổi mật khẩu và phân quyền trực quan trên Web UI sẽ được mở rộng trong Phase 4/Phase 5.
 
 ---
 
@@ -46,3 +45,12 @@
 - Hệ thống hoạt động qua trình duyệt web trên `http://127.0.0.1:8765`.
 - Chưa tích hợp vỏ bọc máy tính để bàn dạng Native Desktop (Tauri / Electron) hoặc Windows Tray Service.
 - **Giai đoạn giải quyết:** Phase 4 (Native Desktop Wrapper).
+
+---
+
+## 5. RANH GIỚI CÔ LẬP TIẾN TRÌNH (PROCESS ISOLATION BOUNDARIES)
+
+### 5.1. Windows Job Objects không thay thế Container/Hypervisor Sandbox
+- Process Supervisor sử dụng Windows Job Objects với cờ `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` để đảm bảo dọn dẹp sạch sẽ vòng đời tiến trình, ngăn chặn tuyệt đối tiến trình zombie rò rỉ cổng mạng.
+- Tuy nhiên, đây là cơ chế quản lý vòng đời hệ điều hành, không phải môi trường sandbox ảo hóa (không hạn chế quyền đọc/ghi tệp hệ thống của người dùng hiện tại). Các worker chạy dưới quyền tài khoản người dùng Windows thông thường.
+- Kiến trúc đảm bảo sự ổn định khi worker sập (crash isolation), nhưng việc chạy các model không rõ nguồn gốc (untrusted code) vẫn bị nghiêm cấm theo quy định bảo mật ADR-0005.

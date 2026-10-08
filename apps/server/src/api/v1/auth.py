@@ -11,6 +11,7 @@ from ...schemas.auth import (
     AuthStatusResponse,
     BootstrapRequest,
     LoginRequest,
+    UserCreateRequest,
     TokenResponse,
     UserResponse,
 )
@@ -88,3 +89,22 @@ async def get_current_user_profile(
         role=current_user.role,
         created_at=current_user.created_at,
     )
+
+
+@router.post("/users", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+async def create_user_account(
+    req: UserCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Admin-only endpoint to provision user accounts (editor or viewer).
+    """
+    user = await AuthService.create_user(db, req, current_user)
+    return UserResponse(
+        id=user.id,
+        username=user.username,
+        role=user.role,
+        created_at=user.created_at,
+    )
+

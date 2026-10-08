@@ -23,6 +23,12 @@ class LoginRequest(BaseModel):
     password: str = Field(..., min_length=1)
 
 
+class UserCreateRequest(BaseModel):
+    username: str = Field(..., min_length=3, max_length=50)
+    password: str = Field(..., min_length=8, max_length=128)
+    role: str = Field("editor", pattern="^(admin|editor|viewer)$")
+
+
 class UserResponse(BaseModel):
     id: str
     username: str
