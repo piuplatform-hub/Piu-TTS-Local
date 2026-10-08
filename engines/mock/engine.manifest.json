@@ -1,0 +1,35 @@
+{
+  "$schema": "https://ai-voice-studio.local/schemas/engine.manifest.v1.json",
+  "manifest_version": "1.0",
+  "engine_id": "mock-tts",
+  "name": "Mock Synthetic Engine",
+  "version": "1.0.0",
+  "author": "AI Voice Studio QA & Architecture",
+  "license": "Apache-2.0",
+  "description": "Standardized contract-testing mock engine producing synthetic WAV audio without neural weights",
+  "capabilities": [
+    "text_to_speech",
+    "speaker_selection"
+  ],
+  "supported_languages": ["vi", "zh", "en"],
+  "default_sample_rate": 44100,
+  "runtime": {
+    "entrypoint": "engines/mock/worker.py",
+    "python_version_min": "3.10",
+    "python_version_max": "3.12"
+  },
+  "hardware_profile": {
+    "supported_devices": ["cpu"],
+    "default_device": "cpu",
+    "estimated_vram_mb": 0,
+    "estimated_ram_mb": 64
+  },
+  "parameters_schema": {
+    "speed": {
+      "type": "number",
+      "minimum": 0.5,
+      "maximum": 2.0,
+      "default": 1.0
+    }
+  }
+}
