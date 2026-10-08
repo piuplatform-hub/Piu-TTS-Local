@@ -1,5 +1,26 @@
 # Documentation changelog
 
+## 2026-10-08 — Phase 4 Final UI Acceptance Gate: Browser Master Export & Download Verified (Independent PASS)
+
+- **Root Cause Resolution for Browser Audio Download:**
+  - Implemented `get_current_user_flexible` in `apps/server/src/services/auth_service.py` to support query parameter authentication (`?token=<jwt>`) exclusively for HTML download anchor tags where custom HTTP headers cannot be attached.
+  - Implemented dual routing (`@router.get("/exports/{export_id}/download")` and `@router.get("/{project_id}/exports/{export_id}/download")`) in `apps/server/src/api/v1/projects.py` to reconcile client-server URL differences.
+  - Added `Content-Disposition: attachment; filename="{filename}"` headers and verified cross-user access isolation (`403 Forbidden`).
+  - Updated `apps/web/src/api/client.ts` (`getMasterExportDownloadUrl`) to append `?token=` parameter securely.
+  - Recompiled production frontend bundle (`apps/web/dist`) with 0 errors.
+- **Permanent Browser E2E Test Suite (Playwright Chrome):**
+  - Implemented `tests/e2e/test_phase4_ui_export_download_ci.py`:
+    - Full end-to-end journey from admin onboarding, project creation, text segmentation, UI state reconciliation, DSP master export (WAV & MP3), native browser download interception via `page.expect_download()`, and binary verification (WAV 48kHz, 16-bit PCM, duration > 2.0s).
+    - Verified export history listing and re-download.
+    - Verified security: HTTP 401 for unauthenticated requests, HTTP 403 for cross-user requests.
+    - Executed in 7.50s (1/1 PASS).
+  - Captured authentic screenshot: `docs/reports/screenshots/phase4_06_browser_download_verified.png` (136,630 bytes).
+- **DSP Engineering Clarifications & Document Updates:**
+  - Updated `docs/reports/PHASE_04_KNOWN_LIMITATIONS.md` to clearly distinguish the default `-16.0 LUFS` online podcast/streaming preset (AES TD1004 / Apple Podcasts) from the classical `-23.0 LUFS` European broadcast standard (EBU R128).
+  - Documented True Peak limiter ceiling of `-1.5 dBTP` providing a 1.5 dB headroom safety margin to suppress intersample clipping, avoiding claims that clipping is mathematically impossible under lossy compression.
+- **Independent Governance Deliverable Published:**
+  - `docs/reports/reviews/PHASE_04_FINAL_UI_ACCEPTANCE.md`.
+
 ## 2026-10-08 — Phase 4 Acceptance Gate Remediation & Official Release Pass (Gate PASS)
 
 - **Audit & Asynchronous Data Integrity Remediation:**

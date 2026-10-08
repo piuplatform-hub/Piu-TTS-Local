@@ -588,8 +588,12 @@ class ApiClient {
     });
   }
 
-  getMasterExportDownloadUrl(exportId: string): string {
-    return `/api/v1/projects/exports/${exportId}/download`;
+  getMasterExportDownloadUrl(exportId: string, projectId?: string): string {
+    const tokenParam = this.token ? `?token=${encodeURIComponent(this.token)}` : '';
+    if (projectId) {
+      return `/api/v1/projects/${projectId}/exports/${exportId}/download${tokenParam}`;
+    }
+    return `/api/v1/projects/exports/${exportId}/download${tokenParam}`;
   }
 }
 

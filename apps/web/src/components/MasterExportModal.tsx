@@ -233,7 +233,7 @@ export const MasterExportModal: React.FC<MasterExportModalProps> = ({
               </div>
               <div className="pt-2">
                 <a
-                  href={api.getMasterExportDownloadUrl(lastExport.id)}
+                  href={api.getMasterExportDownloadUrl(lastExport.id, project.id)}
                   download
                   className="inline-flex items-center space-x-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-semibold shadow-md transition-colors"
                 >
@@ -272,7 +272,7 @@ export const MasterExportModal: React.FC<MasterExportModalProps> = ({
                         {exp.duration_seconds.toFixed(1)}s • {formatFileSize(exp.file_size_bytes)}
                       </span>
                       <a
-                        href={api.getMasterExportDownloadUrl(exp.id)}
+                        href={api.getMasterExportDownloadUrl(exp.id, project.id)}
                         download
                         className="p-1.5 rounded-md bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors"
                         title="Tải về"

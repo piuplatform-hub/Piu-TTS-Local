@@ -77,14 +77,31 @@ def test_phase3_real_browser_e2e_journey():
         cfg.set_main_option("sqlalchemy.url", f"sqlite:///{db_file}")
         command.upgrade(cfg, "head")
 
-        # Start background Uvicorn server on port 8771
-        port = 8771
+        # Dynamically allocate free port to prevent TIME_WAIT collisions
+        import socket
+        import urllib.request
+        def get_free_port() -> int:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(("127.0.0.1", 0))
+                return s.getsockname()[1]
+
+        port = get_free_port()
         config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
         server = uvicorn.Server(config)
         server_thread = threading.Thread(target=server.run, daemon=True)
         server_thread.start()
 
-        time.sleep(2.0)
+        # Wait until server is fully responsive
+        server_ready = False
+        for _ in range(40):
+            try:
+                with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/v1/auth/status", timeout=0.5) as resp:
+                    if resp.status == 200:
+                        server_ready = True
+                        break
+            except Exception:
+                time.sleep(0.15)
+        assert server_ready, f"Server failed to start on port {port}"
 
         # Read setup token
         token_file = tmp_path / ".bootstrap_token"
@@ -114,9 +131,11 @@ def test_phase3_real_browser_e2e_journey():
             page.fill('input[placeholder="Dán token 48 ký tự từ console..."]', setup_token)
             page.click('button:has-text("Hoàn tất & Khởi tạo Hệ thống")')
 
-            # Step 2: Speech Studio Authenticated
-            page.wait_for_selector("text=Speech Studio", timeout=10000)
+            # Step 2: Speech Studio Authenticated & Switch to Single TTS Tab if needed
             page.wait_for_selector("text=lead_architect", timeout=10000)
+            if page.locator('button:has-text("Thử Giọng Lẻ")').count() > 0:
+                page.click('button:has-text("Thử Giọng Lẻ")')
+            page.wait_for_selector("text=Speech Studio", timeout=10000)
             page.wait_for_selector("text=Phase 3 Neural Engines", timeout=10000)
 
             # Wait for engines to populate in select

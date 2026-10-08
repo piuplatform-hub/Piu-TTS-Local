@@ -40,4 +40,16 @@
 - **Ranh giới**: Ứng dụng tuân thủ nghiêm ngặt mô hình Local-First:
   - Chỉ lắng nghe trên giao diện cục bộ `127.0.0.1`.
   - Nghiêm cấm mở cổng lắng nghe mạng LAN (`0.0.0.0`) hoặc phơi bày ra Internet trong Phase 4.
-  - Mọi thao tác đều yêu cầu xác thực JWT Bearer Token; ngăn chặn triệt để lỗ hổng CWE-598 (không truyền token trên URL cho SSE hay tệp tin tĩnh).
+  - Mọi thao tác quản trị, dự án và tổng hợp TTS đều yêu cầu xác thực JWT Bearer Token qua header `Authorization: Bearer <token>`.
+  - Riêng endpoint tải tệp Master Audio (`/api/v1/projects/exports/{id}/download`), hệ thống hỗ trợ tham số truy vấn an toàn `?token=<jwt>` độc quyền cho thao tác nhấp tải xuống của thẻ liên kết HTML `<a>` phía trình duyệt (do thẻ `<a download>` không thể gửi kèm HTTP headers tùy biến). Tham số này được kiểm tra quyền sở hữu tệp nghiêm ngặt và không áp dụng cho các API nghiệp vụ khác.
+
+---
+
+### 6. PHÂN BIỆT THIẾT LẬP DSP MASTERING: PRESET PODCAST/WEB (-16 LUFS) VS PHÁT THANH EBU R128 (-23 LUFS)
+- **Ranh giới định lượng**:
+  - Giá trị mặc định `-16.0 LUFS` trên giao diện Master Export Modal là **Preset Chuẩn Hóa Trực Tuyến** dành riêng cho Podcast, YouTube và Sách nói trực tuyến (theo khuyến nghị AES TD1004 và Apple Podcasts), sử dụng thuật toán đo lường ITU-R BS.1770 / EBU R128 `loudnorm` của FFmpeg.
+  - Tiêu chuẩn phát thanh truyền hình truyền thống của Liên minh Phát thanh Truyền hình Châu Âu (**EBU R128 Broadcast Standard**) quy định mức mục tiêu là **-23.0 LUFS** (sai số cho phép $\pm 0.5$ LU). Giao diện và API cung cấp tùy chọn `-23.0 LUFS` cho người dùng sản xuất chương trình truyền hình/phát thanh.
+- **Giới hạn đỉnh (Peak Limiting & Intersample Clipping)**:
+  - Ngưỡng True Peak limiter ceiling được cấu hình ở mức **-1.5 dBTP** (`TP=-1.5`) nhằm tạo khoảng dự trữ an toàn (headroom) 1.5 dB, giúp ngăn ngừa và triệt tiêu đáng kể hiện tượng méo đỉnh liên mẫu (intersample clipping).
+  - Hệ thống **KHÔNG** tuyên bố việc méo tiếng là "hoàn toàn bất khả thi về mặt toán học" dưới mọi định dạng nén lossy MP3 hoặc các bộ giải mã DAC khác nhau, nhưng mức -1.5 dBTP đã bảo đảm tiêu chuẩn an toàn cao theo thông lệ kỹ thuật âm thanh chuyên nghiệp.
+

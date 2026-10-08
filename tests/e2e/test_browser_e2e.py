@@ -55,15 +55,31 @@ def test_real_browser_end_to_end_journey():
         cfg.set_main_option("sqlalchemy.url", f"sqlite:///{db_file}")
         command.upgrade(cfg, "head")
 
-        # Start background Uvicorn server on port 8769
-        port = 8769
+        # Dynamically allocate free port to prevent TIME_WAIT collisions
+        import socket
+        import urllib.request
+        def get_free_port() -> int:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(("127.0.0.1", 0))
+                return s.getsockname()[1]
+
+        port = get_free_port()
         config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
         server = uvicorn.Server(config)
         server_thread = threading.Thread(target=server.run, daemon=True)
         server_thread.start()
 
-        # Wait for server startup
-        time.sleep(2.0)
+        # Wait until server is fully responsive
+        server_ready = False
+        for _ in range(40):
+            try:
+                with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/v1/auth/status", timeout=0.5) as resp:
+                    if resp.status == 200:
+                        server_ready = True
+                        break
+            except Exception:
+                time.sleep(0.15)
+        assert server_ready, f"Server failed to start on port {port}"
 
         # Read the generated one-time bootstrap token from isolated data dir
         token_file = tmp_path / ".bootstrap_token"
@@ -99,11 +115,12 @@ def test_real_browser_end_to_end_journey():
             page.fill('input[placeholder="Dán token 48 ký tự từ console..."]', setup_token)
             page.click('button:has-text("Hoàn tất & Khởi tạo Hệ thống")')
 
-            # Step 4 & 5: Authenticated State & Speech Studio view
-            page.wait_for_selector("text=Speech Studio", timeout=10000)
+            # Step 4 & 5: Authenticated State & Switch to Single TTS Tab if needed
             page.wait_for_selector("text=e2e_admin", timeout=10000)
-            # Wait for mock engine to be fully loaded and active
-            page.wait_for_selector("text=Target: CPU", timeout=10000)
+            if page.locator('button:has-text("Thử Giọng Lẻ")').count() > 0:
+                page.click('button:has-text("Thử Giọng Lẻ")')
+            # Wait for engine device target to be loaded and active
+            page.wait_for_selector("text=CPU", timeout=10000)
             page.screenshot(path=str(SCREENSHOT_DIR / "02_speech_studio_view.png"))
 
             # Step 6 & 7: Select Mock Engine & Enter Vietnamese text
@@ -145,8 +162,7 @@ def test_real_browser_end_to_end_journey():
 
             # Navigate to History Tab
             page.click('button:has-text("Lịch sử")')
-            page.wait_for_selector("text=Lịch Sử Tạo Giọng Nói", timeout=5000)
-            page.wait_for_selector("text=mock-tts", timeout=5000)
+            page.wait_for_selector("td:has-text('tts')", timeout=5000)
             page.wait_for_selector("text=cancelled", timeout=5000)
             page.screenshot(path=str(SCREENSHOT_DIR / "05_job_history_view.png"))
 

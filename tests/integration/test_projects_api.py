@@ -583,13 +583,49 @@ async def test_master_audio_export_wav_and_mp3(setup_test_db, auth_tokens, tmp_p
         assert Path(wav_data["file_path"]).is_file()
         assert wav_data["duration_seconds"] > 2.0  # 1.5s + 0.2s pause + 1.2s + 0.2s pause
 
-        # Test download
+        # Test download with Authorization header
         dl_wav = await client.get(
             f"/api/v1/projects/{proj_id}/exports/{wav_data['id']}/download",
             headers=headers,
         )
         assert dl_wav.status_code == 200
         assert dl_wav.headers["content-type"] == "audio/wav"
+        assert 'attachment; filename="' in dl_wav.headers.get("content-disposition", "")
+        assert len(dl_wav.content) > 1000
+
+        # Test browser download via query parameter '?token=' (direct route)
+        dl_token_direct = await client.get(
+            f"/api/v1/projects/exports/{wav_data['id']}/download?token={auth_tokens['alice']}",
+        )
+        assert dl_token_direct.status_code == 200
+        assert dl_token_direct.headers["content-type"] == "audio/wav"
+        assert 'attachment; filename="' in dl_token_direct.headers.get("content-disposition", "")
+        assert len(dl_token_direct.content) == len(dl_wav.content)
+
+        # Test browser download via query parameter '?token=' (nested project route)
+        dl_token_nested = await client.get(
+            f"/api/v1/projects/{proj_id}/exports/{wav_data['id']}/download?token={auth_tokens['alice']}",
+        )
+        assert dl_token_nested.status_code == 200
+        assert len(dl_token_nested.content) == len(dl_wav.content)
+
+        # Security check: Unauthenticated download without token or header -> 401
+        dl_unauth = await client.get(
+            f"/api/v1/projects/exports/{wav_data['id']}/download",
+        )
+        assert dl_unauth.status_code == 401
+
+        # Security check: Cross-user download by Bob on Alice's export -> 403 Forbidden
+        dl_cross_query = await client.get(
+            f"/api/v1/projects/exports/{wav_data['id']}/download?token={auth_tokens['bob']}",
+        )
+        assert dl_cross_query.status_code == 403
+
+        dl_cross_header = await client.get(
+            f"/api/v1/projects/{proj_id}/exports/{wav_data['id']}/download",
+            headers={"Authorization": f"Bearer {auth_tokens['bob']}"},
+        )
+        assert dl_cross_header.status_code == 403
 
         # 2. Export as Master MP3 (320kbps)
         exp_mp3 = await client.post(
@@ -602,13 +638,14 @@ async def test_master_audio_export_wav_and_mp3(setup_test_db, auth_tokens, tmp_p
         assert mp3_data["format"] == "mp3"
         assert Path(mp3_data["file_path"]).is_file()
 
-        # Test download MP3
+        # Test download MP3 via browser token query param
         dl_mp3 = await client.get(
-            f"/api/v1/projects/{proj_id}/exports/{mp3_data['id']}/download",
-            headers=headers,
+            f"/api/v1/projects/exports/{mp3_data['id']}/download?token={auth_tokens['alice']}",
         )
         assert dl_mp3.status_code == 200
         assert dl_mp3.headers["content-type"] == "audio/mpeg"
+        assert 'attachment; filename="' in dl_mp3.headers.get("content-disposition", "")
+        assert len(dl_mp3.content) > 1000
 
 
 @pytest.mark.asyncio

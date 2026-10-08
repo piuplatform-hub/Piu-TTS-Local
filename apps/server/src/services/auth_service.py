@@ -203,3 +203,26 @@ async def get_user_from_token_str(token_str: str, db: AsyncSession) -> User:
 
     return user
 
+
+async def get_current_user_flexible(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_scheme),
+    token: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    """
+    Authenticates user either from Authorization: Bearer header OR query parameter '?token='.
+    Designed specifically for browser media streaming and file downloads (audio tags, download anchors)
+    where custom headers cannot be attached by standard browser HTTP requests.
+    """
+    if credentials and credentials.credentials:
+        return await get_current_user(credentials, db)
+    elif token:
+        return await get_user_from_token_str(token, db)
+    else:
+        raise AppException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            title="Authentication Required",
+            detail="Missing Bearer access token in Authorization header or token query parameter.",
+            code="UNAUTHORIZED",
+        )
+

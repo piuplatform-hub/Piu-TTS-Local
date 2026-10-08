@@ -56,14 +56,31 @@ def test_phase4_real_browser_e2e_studio_journey():
         cfg.set_main_option("sqlalchemy.url", f"sqlite:///{db_file}")
         command.upgrade(cfg, "head")
 
-        # Start background Uvicorn server on port 8774
-        port = 8774
+        # Dynamically allocate free port to prevent TIME_WAIT collisions
+        import socket
+        import urllib.request
+        def get_free_port() -> int:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(("127.0.0.1", 0))
+                return s.getsockname()[1]
+
+        port = get_free_port()
         config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
         server = uvicorn.Server(config)
         server_thread = threading.Thread(target=server.run, daemon=True)
         server_thread.start()
 
-        time.sleep(2.0)
+        # Wait until server is fully responsive
+        server_ready = False
+        for _ in range(40):
+            try:
+                with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/v1/auth/status", timeout=0.5) as resp:
+                    if resp.status == 200:
+                        server_ready = True
+                        break
+            except Exception:
+                time.sleep(0.15)
+        assert server_ready, f"Server failed to start on port {port}"
 
         # Read bootstrap setup token
         token_file = tmp_path / ".bootstrap_token"

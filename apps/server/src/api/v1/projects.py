@@ -7,11 +7,14 @@ from pathlib import Path
 from typing import List, Optional
 from fastapi import APIRouter, Depends, status, HTTPException
 from fastapi.responses import FileResponse
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...database import get_db
 from apps.server.src.models.user import User
-from apps.server.src.services.auth_service import get_current_user
+from apps.server.src.models.export import ProjectExportRecord
+from apps.server.src.services.auth_service import get_current_user, get_current_user_flexible
 from apps.server.src.services.project_service import ProjectService
 from apps.server.src.services.text_segmenter import TextSegmenter
 from apps.server.src.services.audio_dsp_service import AudioDspService
@@ -269,26 +272,49 @@ async def export_master_audio(
     return export_rec
 
 
+@router.get("/exports/{export_id}/download")
 @router.get("/{project_id}/exports/{export_id}/download")
 async def download_master_audio(
-    project_id: str,
     export_id: str,
-    current_user: User = Depends(get_current_user),
+    project_id: Optional[str] = None,
+    current_user: User = Depends(get_current_user_flexible),
     db: AsyncSession = Depends(get_db),
 ):
     """
     Downloads an exported master audio file.
+    Supports both Authorization header and '?token=' query parameter for seamless browser downloads.
+    Strictly verifies user ownership and isolates cross-user access.
     """
-    project = await ProjectService.get_project_record(db, project_id, current_user.id)
-    target_exp = next((e for e in project.exports if e.id == export_id), None)
-    if not target_exp or not Path(target_exp.file_path).is_file():
+    stmt = (
+        select(ProjectExportRecord)
+        .where(ProjectExportRecord.id == export_id)
+        .options(selectinload(ProjectExportRecord.project))
+    )
+    res = await db.execute(stmt)
+    target_exp = res.scalar_one_or_none()
+    if not target_exp or not target_exp.project:
+        raise HTTPException(status_code=404, detail="EXPORT_FILE_NOT_FOUND")
+
+    # Cross-user authorization check
+    if target_exp.project.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="FORBIDDEN_PROJECT_ACCESS")
+
+    # If explicit project_id is given (and not route placeholder 'exports'), verify match
+    if project_id and project_id != "exports" and target_exp.project_id != project_id:
+        raise HTTPException(status_code=404, detail="EXPORT_NOT_FOUND_IN_PROJECT")
+
+    if not Path(target_exp.file_path).is_file():
         raise HTTPException(status_code=404, detail="EXPORT_FILE_NOT_FOUND")
 
     ext = target_exp.format.lower()
     media_type = "audio/mpeg" if ext == "mp3" else "audio/wav"
-    filename = f"{project.title.replace(' ', '_')}_{export_id[:8]}.{ext}"
+    safe_title = "".join(c for c in target_exp.project.title if c.isalnum() or c in (" ", "_", "-")).strip().replace(" ", "_")
+    filename = f"{safe_title}_{export_id[:8]}.{ext}"
     return FileResponse(
         path=target_exp.file_path,
         media_type=media_type,
         filename=filename,
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        },
     )
