@@ -37,9 +37,13 @@ async def app_exception_handler(request: Request, exc: AppException) -> JSONResp
         "instance": request.url.path,
         **exc.extra,
     }
+    headers = {}
+    if "retry_after" in exc.extra:
+        headers["Retry-After"] = str(exc.extra["retry_after"])
     return JSONResponse(
         status_code=exc.status_code,
         content=content,
+        headers=headers,
         media_type="application/problem+json",
     )
 

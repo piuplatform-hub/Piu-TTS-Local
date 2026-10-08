@@ -110,12 +110,32 @@ class AuthService:
         return new_user
 
     @staticmethod
-    async def authenticate_user(db: AsyncSession, username: str, password: str) -> User:
+    async def authenticate_user(
+        db: AsyncSession,
+        username: str,
+        password: str,
+        ip_address: str = "127.0.0.1",
+    ) -> User:
+        from .login_protection_service import LoginProtectionService
+
+        # 1. Rate Limiting Check (Brute-Force & Password Spraying Protection)
+        is_limited, retry_after = await LoginProtectionService.check_rate_limit(db, ip_address, username)
+        if is_limited:
+            raise AppException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                title="Too Many Login Attempts",
+                detail=f"Too many failed login attempts. Please try again after {retry_after} seconds.",
+                code="TOO_MANY_LOGIN_ATTEMPTS",
+                extra={"retry_after": retry_after},
+            )
+
         stmt = select(User).where(User.username == username.strip())
         result = await db.execute(stmt)
         user = result.scalar_one_or_none()
 
+        # Non-enumerating credential verification
         if not user or not verify_password(password, user.password_hash):
+            await LoginProtectionService.record_attempt(db, ip_address, username, success=False)
             raise AppException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 title="Invalid Credentials",
@@ -131,7 +151,35 @@ class AuthService:
                 code="ACCOUNT_DISABLED",
             )
 
+        # Login success -> reset failed attempts
+        await LoginProtectionService.record_attempt(db, ip_address, username, success=True)
         return user
+
+    @staticmethod
+    async def change_password(
+        db: AsyncSession,
+        user: User,
+        old_password: str,
+        new_password: str,
+    ) -> None:
+        if not verify_password(old_password, user.password_hash):
+            raise AppException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                title="Invalid Current Password",
+                detail="Current password is incorrect.",
+                code="INVALID_OLD_PASSWORD",
+            )
+
+        if len(new_password) < 8:
+            raise AppException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                title="Weak Password",
+                detail="New password must be at least 8 characters long.",
+                code="PASSWORD_TOO_SHORT",
+            )
+
+        user.password_hash = hash_password(new_password)
+        await db.commit()
 
 
 async def get_current_user(
@@ -151,7 +199,7 @@ async def get_current_user(
         user_id = payload.get("sub")
         if not user_id:
             raise ValueError("Token missing subject claim")
-    except Exception as e:
+    except Exception:
         raise AppException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             title="Invalid or Expired Token",
@@ -172,6 +220,39 @@ async def get_current_user(
         )
 
     return user
+
+
+async def require_editor(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """
+    Enforces editor or administrator role for creative synthesis and project mutations.
+    Rejects viewer role with 403 Forbidden.
+    """
+    if current_user.role not in ("admin", "editor"):
+        raise AppException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            title="Editor Privilege Required",
+            detail="Editor or administrator role is required for this action.",
+            code="FORBIDDEN_INSUFFICIENT_ROLE",
+        )
+    return current_user
+
+
+async def require_admin(
+    current_user: User = Depends(get_current_user),
+) -> User:
+    """
+    Enforces exclusive administrator role for system and user management.
+    """
+    if current_user.role != "admin":
+        raise AppException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            title="Admin Privilege Required",
+            detail="Administrator role is required for this action.",
+            code="FORBIDDEN_ADMIN_REQUIRED",
+        )
+    return current_user
 
 
 async def get_user_from_token_str(token_str: str, db: AsyncSession) -> User:

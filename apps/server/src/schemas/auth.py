@@ -34,9 +34,22 @@ class UserResponse(BaseModel):
     username: str
     role: str
     created_at: datetime
+    storage_quota_mb: Optional[int] = None
 
 
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserResponse
+
+
+class ChangePasswordRequest(BaseModel):
+    old_password: str = Field(..., min_length=1)
+    new_password: str = Field(..., min_length=8, max_length=128)
+
+
+class StorageUsageResponse(BaseModel):
+    used_bytes: int
+    used_mb: float
+    quota_mb: float
+    percent_used: float

@@ -7,10 +7,11 @@ from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional, Tuple, Any
 import uuid
 
-from sqlalchemy import select, update, desc, and_, or_
+from sqlalchemy import select, update, desc, and_, or_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import database
+from ..config import settings
 from ..core.errors import AppException
 from ..models.asset import ReferenceAssetRecord
 from ..models.engine import EngineRecord
@@ -20,6 +21,7 @@ from ..schemas.job import TTSJobSubmitRequest
 from .event_service import event_service
 from .job_state_machine import JobStateMachine, JobState
 from .resource_manager import resource_manager
+from .user_quota_service import UserQuotaService
 
 
 class FencingTokenError(AppException):
@@ -130,8 +132,8 @@ class DurableQueueService:
                     code="REFERENCE_ASSET_NOT_FOUND",
                 )
 
-            # Per-user ownership check
-            if asset_rec.user_id != current_user.id and getattr(current_user, "role", "user") != "admin":
+            # Strict per-user ownership check (Disallow admin silent bypass for private voice references)
+            if asset_rec.user_id != current_user.id:
                 raise AppException(
                     status_code=403,
                     title="Access Denied",
@@ -262,7 +264,30 @@ class DurableQueueService:
         device_target = (engine_rec.device_target or "cpu").lower()
         resource_type = "gpu" if device_target == "gpu" or "qwen" in req.engine_id.lower() else "cpu"
 
-        # 4. Enqueue into SQLite WAL
+        # 4. Resource & Quota Checks
+        # A. Outstanding active/queued jobs limit per user
+        active_states = [JobState.QUEUED.value, JobState.PREPARING.value, JobState.RUNNING.value]
+        outstanding_stmt = (
+            select(func.count(JobRecord.id))
+            .where(
+                JobRecord.user_id == current_user.id,
+                JobRecord.status.in_(active_states),
+            )
+        )
+        outstanding_res = await db.execute(outstanding_stmt)
+        outstanding_count = outstanding_res.scalar() or 0
+        if outstanding_count >= settings.MAX_OUTSTANDING_JOBS_PER_USER:
+            raise AppException(
+                status_code=429,
+                title="Job Submission Limit Exceeded",
+                detail=f"User has reached the maximum limit of {settings.MAX_OUTSTANDING_JOBS_PER_USER} active/queued jobs. Please wait for current jobs to complete.",
+                code="TOO_MANY_OUTSTANDING_JOBS",
+            )
+
+        # B. User Storage Quota Check (ensure user has not exhausted quota before queuing new inference)
+        await UserQuotaService.assert_quota_available(db, current_user.id, expected_additional_bytes=0)
+
+        # 5. Enqueue into SQLite WAL
         job_id = str(uuid.uuid4())
         job = JobRecord(
             id=job_id,
@@ -311,7 +336,7 @@ class DurableQueueService:
         now = datetime.now(timezone.utc)
 
         async with database.AsyncSessionLocal() as session:
-            # Query candidate jobs ordered by priority DESC, queued_at ASC
+            # 1. Fetch candidate jobs ready for execution (up to 50)
             stmt = (
                 select(JobRecord)
                 .where(
@@ -319,15 +344,46 @@ class DurableQueueService:
                     or_(JobRecord.scheduled_at.is_(None), JobRecord.scheduled_at <= now),
                 )
                 .order_by(JobRecord.priority.desc(), JobRecord.queued_at.asc())
-                .limit(10)
+                .limit(50)
             )
             res = await session.execute(stmt)
-            candidates = res.scalars().all()
+            candidates = list(res.scalars().all())
 
             if not candidates:
                 return None
 
-            for candidate in candidates:
+            # 2. Fair Resource Scheduling:
+            # Query active (PREPARING, RUNNING) job count per user among the candidate set
+            user_ids = {c.user_id for c in candidates if c.user_id}
+            user_active_counts: Dict[str, int] = {uid: 0 for uid in user_ids}
+
+            if user_ids:
+                active_counts_stmt = (
+                    select(JobRecord.user_id, func.count(JobRecord.id))
+                    .where(
+                        JobRecord.user_id.in_(list(user_ids)),
+                        JobRecord.status.in_([JobState.PREPARING.value, JobState.RUNNING.value]),
+                    )
+                    .group_by(JobRecord.user_id)
+                )
+                counts_res = await session.execute(active_counts_stmt)
+                for uid, count in counts_res.all():
+                    user_active_counts[uid] = count
+
+            # Sort candidates fairly:
+            # Tier 1: Higher priority preempts lower priority (-c.priority)
+            # Tier 2: Within same priority, least active user first (user_active_counts)
+            # Tier 3: FIFO within same active count (c.queued_at)
+            sorted_candidates = sorted(
+                candidates,
+                key=lambda c: (
+                    -c.priority,
+                    user_active_counts.get(c.user_id, 0),
+                    c.queued_at or now,
+                )
+            )
+
+            for candidate in sorted_candidates:
                 res_type = candidate.resource_type or "cpu"
                 if not await resource_manager.can_acquire(res_type, session, exclude_job_id=candidate.id):
                     # Update waiting reason if not already set

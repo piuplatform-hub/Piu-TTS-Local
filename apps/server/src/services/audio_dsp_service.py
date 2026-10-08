@@ -31,6 +31,7 @@ from apps.server.src.models.segment import ScriptSegmentRecord
 from apps.server.src.models.artifact import ArtifactRecord
 from apps.server.src.models.export import ProjectExportRecord
 from apps.server.src.schemas.project import MasterExportRequest
+from apps.server.src.services.user_quota_service import UserQuotaService
 
 logger = logging.getLogger("ai_voice_studio.audio_dsp")
 
@@ -250,6 +251,9 @@ class AudioDspService:
         if project.user_id != user_id:
             raise HTTPException(status_code=403, detail="FORBIDDEN_PROJECT_ACCESS")
 
+        # Enforce storage quota preflight check
+        await UserQuotaService.assert_quota_available(session, user_id, expected_additional_bytes=0)
+
         ordered_segments = sorted(project.segments, key=lambda s: s.sequence_order)
         if not ordered_segments:
             raise HTTPException(status_code=400, detail="PROJECT_HAS_NO_SEGMENTS: Không có đoạn âm thanh nào để xuất.")
@@ -396,6 +400,14 @@ class AudioDspService:
 
         # 3. Measure final output audio metrics authentically
         metrics = measure_audio_metrics(final_output_file, ffmpeg_bin)
+
+        # Enforce quota check for final export file size (clean up output file on quota failure)
+        try:
+            await UserQuotaService.assert_quota_available(session, user_id, metrics["file_size_bytes"])
+        except Exception:
+            if final_output_file.exists():
+                final_output_file.unlink(missing_ok=True)
+            raise
 
         # 4. Save ProjectExportRecord in database
         export_rec = ProjectExportRecord(

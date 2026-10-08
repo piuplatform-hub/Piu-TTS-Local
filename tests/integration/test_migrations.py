@@ -82,7 +82,7 @@ def test_alembic_upgrade_preexisting_db_without_data_loss():
         conn.close()
 
         assert user_row == ("legacy_admin", "admin"), "Existing user record was lost during migration"
-        assert version_row is not None and version_row[0] == "20261008_0004", "Alembic version was not recorded"
+        assert version_row is not None and version_row[0] == "20261009_0005", "Alembic version was not recorded"
 
 
 def test_foreign_key_constraint_enforcement():

@@ -41,7 +41,7 @@ def compute_segment_hash(text: str, engine_id: str, voice_id: str, parameters: D
 
 class ProjectService:
     @staticmethod
-    async def get_project_record(session: AsyncSession, project_id: str, user_id: str) -> ProjectRecord:
+    async def get_project_record(session: AsyncSession, project_id: str, user_id: str, is_admin: bool = False) -> ProjectRecord:
         stmt = (
             select(ProjectRecord)
             .where(ProjectRecord.id == project_id)
@@ -55,7 +55,7 @@ class ProjectService:
         project = res.scalar_one_or_none()
         if not project:
             raise HTTPException(status_code=404, detail="PROJECT_NOT_FOUND")
-        if project.user_id != user_id:
+        if project.user_id != user_id and not is_admin:
             raise HTTPException(status_code=403, detail="FORBIDDEN_PROJECT_ACCESS")
         return project
 
@@ -75,15 +75,16 @@ class ProjectService:
         return await cls.get_project_record(session, project.id, user_id)
 
     @classmethod
-    async def list_projects(cls, session: AsyncSession, user_id: str) -> List[Dict[str, Any]]:
+    async def list_projects(cls, session: AsyncSession, user_id: str, is_admin: bool = False) -> List[Dict[str, Any]]:
         stmt = (
             select(ProjectRecord)
-            .where(ProjectRecord.user_id == user_id)
             .options(
                 selectinload(ProjectRecord.segments),
             )
             .order_by(ProjectRecord.updated_at.desc())
         )
+        if not is_admin:
+            stmt = stmt.where(ProjectRecord.user_id == user_id)
         res = await session.execute(stmt)
         projects = res.scalars().all()
 
@@ -534,7 +535,11 @@ class ProjectService:
         Reconciles in-flight segment jobs with actual JobRecord states.
         Preserves previous audio in SegmentRevisionRecord on new completion.
         """
-        project = await cls.get_project_record(session, project_id, current_user.id)
+        is_admin = getattr(current_user, "role", "user") == "admin"
+        project = await cls.get_project_record(session, project_id, current_user.id, is_admin=is_admin)
+        if is_admin and project.user_id != current_user.id:
+            # Operational inspection only: Admin cannot mutate another user's project content
+            return project
         changed = False
 
         for seg in project.segments:
@@ -631,4 +636,4 @@ class ProjectService:
             project.updated_at = datetime.now(timezone.utc)
             await session.commit()
 
-        return await cls.get_project_record(session, project_id, current_user.id)
+        return await cls.get_project_record(session, project_id, current_user.id, is_admin=is_admin)

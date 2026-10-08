@@ -42,6 +42,13 @@ class Settings(BaseSettings):
     # Audio DSP & FFmpeg binary path (configurable via STUDIO_FFMPEG_PATH env)
     STUDIO_FFMPEG_PATH: str = ""
 
+    # Milestone 5A: Multi-User Quotas, Resource Fairness & Login Protection
+    USER_STORAGE_QUOTA_MB: int = 5120  # 5GB default candidate per user (0 = unlimited)
+    MAX_OUTSTANDING_JOBS_PER_USER: int = 25  # Max queued + running jobs per user
+    LOGIN_MAX_FAILED_ATTEMPTS_USER: int = 5  # Max consecutive failed attempts per username
+    LOGIN_MAX_FAILED_ATTEMPTS_IP: int = 10  # Max consecutive failed attempts per IP
+    LOGIN_LOCKOUT_WINDOW_MINUTES: int = 15  # Lockout observation window and backoff in minutes
+
     def get_data_dir(self) -> Path:
         """
         Returns resolved data directory path. Creates subdirectories if they don't exist.

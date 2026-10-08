@@ -132,7 +132,7 @@ Toàn bộ dữ liệu của hệ thống được cô lập nghiêm ngặt tron
 | **FFmpeg DSP Mastering (Two-pass EBU R128)** | **0.0 GB** | 0.5 GB | 4 Threads | Chạy tuần tự theo lệnh xuất bản, thời gian hoàn thành 5–15 giây. |
 | **FastAPI + Caddy Server** | **0.0 GB** | 0.3 GB | 1 Thread | Tiêu thụ tài nguyên rất nhỏ, đáp ứng 50–100 req/s. |
 | **Windows 11 OS & Bộ nhớ đệm hệ thống** | **0.3 GB** | 3.5 GB | 2 Threads | Hoạt động nền của hệ điều hành. |
-| **TỔNG TIÊU THỤ CỰC ĐẠI KHI CẢ HỆ THỐNG ĐẦY TẢI** | **4.1 GB / 6.0 GB (68%)** | **7.0 GB / 16.0 GB (44%)** | **12 / 12 Threads** | **Hệ thống vận hành an toàn tuyệt đối, còn dư 1.9GB VRAM và 9.0GB RAM đệm chống tràn.** |
+| **TỔNG TIÊU THỤ CỰC ĐẠI KHI CẢ HỆ THỐNG ĐẦY TẢI** | **4.1 GB / 6.0 GB (68%)** | **7.0 GB / 16.0 GB (44%)** | **12 / 12 Threads** | **Mức dự phòng lý thuyết còn khoảng 1.9GB VRAM và 9.0GB RAM; tuy nhiên rủi ro phân mảnh VRAM hoặc xung đột tiến trình đồ họa ngoài OS vẫn đòi hỏi giám sát liên tục, không thể khẳng định an toàn 100% trong mọi kịch bản.** |
 
 ---
 
@@ -152,9 +152,9 @@ flowchart TD
 
     subgraph DEFENSE_LAYERS["Hàng rào phòng thủ Phase 5"]
         TLS["1. Bắt buộc HTTPS/TLS qua Caddy Server"]
-        RateLimit["2. Rate Limiting đầu biên (Max 5 login fails)"]
+        RateLimit["2. Rate Limiting tầng ứng dụng FastAPI & Caddy"]
         FairShare["3. Fair-Share Round-Robin Scheduler"]
-        Quotas["4. User Storage Quotas (Max 5GB/user)"]
+        Quotas["4. User Storage Quotas (Mặc định 5GB/user)"]
         RBAC["5. Strict RBAC Middleware & Token Isolation"]
     end
 

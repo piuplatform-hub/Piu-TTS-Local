@@ -111,17 +111,20 @@ Tuy nhiên, trong môi trường sản xuất nội dung thực tế (phòng thu
 3. **Bộ lập lịch công bằng (Fair-Share Scheduling)**:
    - Nâng cấp `DurableQueueService.claim_next_job`: Thay vì FIFO đơn thuần, sắp xếp ứng viên ưu tiên theo vòng lặp người dùng (Per-User Round-Robin), đảm bảo người dùng có ít job đang chạy được ưu tiên xử lý trước người dùng đang chạy hàng loạt.
 4. **Hạn mức lưu trữ người dùng (Storage Quotas)**:
-   - Bổ sung cấu hình `USER_STORAGE_QUOTA_MB: int = 5120` (5GB/user).
+   - Bổ sung cấu hình `USER_STORAGE_QUOTA_MB: int = 5120` (5GB/user là giá trị cấu hình mặc định đề xuất, không phải hằng số dung lượng cứng đã được kiểm chứng cho mọi quy mô).
    - Kiểm tra dung lượng trước khi lưu tệp âm thanh; từ chối với HTTP 413 `USER_STORAGE_QUOTA_EXCEEDED` khi vượt ngưỡng.
+   - Áp dụng chính sách không phá hủy: Không xóa dữ liệu người dùng cũ nếu tổng dung lượng của họ trước đó đã vượt hạn mức mới.
 
 ### Milestone 5B: Tích Hợp Local Reverse Proxy & HTTPS/TLS Đầu Mạng LAN
-1. **Lựa chọn Reverse Proxy**: Sử dụng **Caddy Server** (khuyến nghị số 1 cho Windows vì là single binary nhẹ, hiệu năng cực cao, tích hợp sẵn Local HTTPS CA tự động cấp chứng chỉ không cần cấu hình phức tạp).
+1. **Lựa chọn Reverse Proxy**: Sử dụng **Caddy Server** (khuyến nghị số 1 cho Windows vì là single binary nhẹ, hiệu năng cao, tích hợp sẵn Local HTTPS CA tự động cấp chứng chỉ).
+   - *Lưu ý kỹ thuật*: Tính năng Rate Limiting ở tầng Caddy có thể yêu cầu module/plugin ngoài (`caddy-ratelimit`) hoặc phải được kiểm soát chủ động ở tầng ứng dụng (Application-level Rate Limiting). Do đó, Milestone 5A tập trung xây dựng cơ chế bảo vệ đăng nhập và giới hạn tần suất trực tiếp trong FastAPI.
 2. **Cấu hình Caddyfile Chuẩn Phòng Thu**:
    - Tự động sinh chứng chỉ nội bộ cho hostname LAN (ví dụ: `studio.local` hoặc IP `192.168.1.x`).
    - Phục vụ trực tiếp tệp tĩnh `apps/web/dist` với HTTP/2 và gzip/zstd nén nhanh.
    - Chuyển tiếp `/api/*` về `http://127.0.0.1:8765`.
    - Bật HSTS, CSP, X-Frame-Options và CORS header chặt chẽ.
-3. **Cung cấp Script cài đặt chứng chỉ Root CA** cho máy khách Windows/macOS trong mạng LAN (`scripts/install_lan_cert.ps1`).
+3. **Phân phối tin cậy chứng chỉ (Internal CA Trust Distribution)**:
+   - Chứng chỉ Caddy Internal CA yêu cầu phải được phân phối và cài đặt tin cậy vào Windows/macOS Certificate Store trên từng máy khách nội bộ (`scripts/install_lan_cert.ps1`) để loại bỏ cảnh báo chứng chỉ không xác thực của trình duyệt.
 
 ### Milestone 5C: Quản Lý Vòng Đời Tiến Trình Windows & Tự Động Khởi Động (Windows Service / Autostart)
 1. **Kiến trúc dịch vụ trên Windows**:
@@ -163,13 +166,13 @@ Tuy nhiên, trong môi trường sản xuất nội dung thực tế (phòng thu
 
 - **Mô hình định lượng tải tối đa (Capacity Matrix)**:
 
-| Thành phần | Tiêu thụ tài nguyên thực tế | Ngưỡng an toàn tối đa trên máy trạm | Ranh giới vận hành Phase 5 |
+| Thành phần | Tiêu thụ tài nguyên đo đạc & dự phóng | Ngưỡng an toàn vật lý của máy trạm | Ranh giới vận hành kiểm soát |
 | :--- | :--- | :--- | :--- |
-| **Qwen3-TTS Worker** | 3.8GB VRAM, ~1.2GB System RAM | 6.0GB VRAM tối đa của GPU | **Cố định duy nhất 1 GPU Slot**. Nghiêm cấm chạy 2 job GPU đồng thời (nguy cơ OOM 100%). |
-| **VieNeu-TTS Worker** | 0GB VRAM, ~1.5GB System RAM, 2-3 CPU threads | 16GB RAM, 12 CPU threads | **Giữ tối đa 1 CPU Slot** (để dành 9 threads cho OS, Web API và FFmpeg DSP). |
-| **FFmpeg DSP Mastering** | 0GB VRAM, ~0.5GB System RAM, 4 CPU threads | Chạy trong thời gian ngắn (5–15s) | Chạy tuần tự theo yêu cầu export, timeout 300s. |
-| **FastAPI + Caddy Server** | ~0.3GB System RAM, < 1% CPU | Rất nhẹ, xử lý được 100+ req/s | Phục vụ tốt 5–10 người dùng nội bộ đồng thời. |
-| **Tổng tải khi đỉnh điểm** | **3.8GB / 6GB VRAM (63%)**, **~5.5GB / 16GB RAM (34%)** | **Dư 2.2GB VRAM và 10.5GB RAM dự phòng an toàn cho Windows OS.** |
+| **Qwen3-TTS Worker** | **Đo đạc thực tế đỉnh ~3.8GB VRAM**, ~1.2GB System RAM (Phase 1B benchmark) | 6.0GB VRAM tối đa của GPU | **Cố định duy nhất 1 GPU Slot**. Nghiêm cấm chạy 2 job GPU đồng thời (nguy cơ OOM rất cao). |
+| **VieNeu-TTS Worker** | Đo đạc thực tế 0GB VRAM, ~1.5GB System RAM, 2-3 CPU threads | 16GB RAM, 12 CPU threads | **Giữ tối đa 1 CPU Slot** (để dành tài nguyên CPU cho OS, Web API và FFmpeg DSP). |
+| **FFmpeg DSP Mastering** | Ước lượng 0GB VRAM, ~0.5GB System RAM, 4 CPU threads | Thời gian chạy ngắn (5–15s) | Chạy tuần tự theo yêu cầu export, timeout 300s. |
+| **FastAPI + Caddy Server** | Ước lượng ~0.3GB System RAM, < 1% CPU | Xử lý tốt 50–100 req/s | Phục vụ 3–5 người dùng phòng thu đồng thời. |
+| **Tổng tải khi đỉnh điểm** | **~3.8GB / 6GB VRAM (63%)**, **~5.5GB / 16GB RAM (34%)** | Còn khoảng 2.2GB VRAM và 10.5GB RAM dự phòng cho Windows OS. | **Giảm thiểu tối đa nguy cơ CUDA OOM; tuy nhiên nguy cơ phân mảnh VRAM hoặc ứng dụng bên ngoài can thiệp vẫn cần giám sát.** |
 
 ---
 

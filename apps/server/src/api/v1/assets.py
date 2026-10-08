@@ -10,8 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...database import get_db
 from ...models.user import User
 from ...schemas.asset import ReferenceAssetResponse, ReferenceAssetUploadResponse
-from ...services.auth_service import get_current_user
+from ...services.auth_service import get_current_user, require_editor
 from ...services.asset_service import AssetService
+from ...services.user_quota_service import UserQuotaService
 
 router = APIRouter(prefix="/assets", tags=["Reference Assets"])
 
@@ -21,15 +22,19 @@ async def upload_reference_audio(
     file: UploadFile = File(...),
     voice_use_consent: bool = Form(...),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_editor),
 ):
     """
     Securely upload a reference WAV audio file for zero-shot voice cloning.
     Validates audio format, duration (0.5s - 30s), enforces explicit consent,
-    and isolates storage under user-specific directories.
+    enforces user storage quota, and isolates storage under user-specific directories.
+    Requires editor or admin role.
     """
     file_bytes = await file.read()
     filename = file.filename or "reference.wav"
+
+    # Enforce user storage quota before persisting audio asset
+    await UserQuotaService.assert_quota_available(db, current_user.id, len(file_bytes))
 
     record = await AssetService.upload_reference_audio(
         db=db,
@@ -114,10 +119,11 @@ async def get_reference_audio(
 async def delete_reference_audio(
     asset_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_editor),
 ):
     """
     Delete a reference audio asset and remove physical audio bytes from disk.
+    Requires editor or admin role.
     """
     await AssetService.delete_reference_asset(db, asset_id, current_user)
     return {"message": "Reference audio deleted successfully.", "asset_id": asset_id}

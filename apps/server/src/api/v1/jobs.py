@@ -13,7 +13,7 @@ from ...database import get_db
 from ...models.user import User
 from ...models.job import JobRecord
 from ...schemas.job import TTSJobSubmitRequest, JobResponse
-from ...services.auth_service import get_current_user
+from ...services.auth_service import get_current_user, require_editor
 from ...services.job_service import JobService
 from ...services.event_service import event_service
 from ...core.errors import AppException
@@ -46,11 +46,12 @@ def _to_job_response(rec: JobRecord) -> JobResponse:
 async def submit_speech_job(
     req: TTSJobSubmitRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_editor),
 ):
     """
     Submits a Text-to-Speech synthesis job into the durable SQLite queue.
     Enforces idempotency and payload collision checks (409 Conflict).
+    Requires editor or admin role.
     """
     job = await JobService.submit_speech_job(db, req, current_user)
     return _to_job_response(job)
@@ -87,10 +88,10 @@ async def list_jobs(
 async def cancel_job(
     job_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_editor),
 ):
     """
-    Cancel a queued or active job.
+    Cancel a queued or active job. Requires editor or admin role.
     """
     job = await JobService.cancel_job(db, job_id, current_user)
     return _to_job_response(job)
@@ -100,10 +101,10 @@ async def cancel_job(
 async def retry_job(
     job_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_editor),
 ):
     """
-    Manually retries a failed job, resetting attempts and re-enqueueing.
+    Manually retries a failed job, resetting attempts and re-enqueueing. Requires editor or admin role.
     """
     job = await JobService.retry_job(db, job_id, current_user)
     return _to_job_response(job)

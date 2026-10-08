@@ -7,6 +7,7 @@ from .project import ProjectRecord
 from .character import CharacterRecord
 from .segment import ScriptSegmentRecord, SegmentRevisionRecord
 from .export import ProjectExportRecord
+from .login_attempt import LoginAttemptRecord
 
 __all__ = [
     "User",
@@ -20,4 +21,5 @@ __all__ = [
     "ScriptSegmentRecord",
     "SegmentRevisionRecord",
     "ProjectExportRecord",
+    "LoginAttemptRecord",
 ]

@@ -1,5 +1,32 @@
 # Documentation changelog
 
+## 2026-10-09 — Phase 5A: Multi-User Core Hardening & Fair Resource Scheduling (Gate PASS)
+
+- **Ma Trận Phân Quyền & Kiểm Soát Truy Cập Tiêu Cực (RBAC & Negative Authorization):**
+  - Áp dụng triệt để dependency `require_editor` trên tất cả các route biến đổi dữ liệu (mutations) tại `projects.py`, `jobs.py`, và `assets.py`. Người dùng vai trò `viewer` bị từ chối với HTTP 403 `FORBIDDEN_INSUFFICIENT_PERMISSIONS`.
+  - Giữ vững chốt chặn an toàn `FORBIDDEN_USER_CREATION` tại `POST /auth/users`, từ chối người dùng thông thường cố tình khởi tạo tài khoản.
+- **Cách Ly Quyền Sở Hữu Voice Cloning (Strict Audio Reference Ownership):**
+  - Loại bỏ hoàn toàn đặc quyền Admin âm thầm sử dụng mẫu giọng của người khác trong `durable_queue_service.py` (`asset_rec.user_id == current_user.id`), trả về HTTP 403 `FORBIDDEN_ASSET_ACCESS` khi vi phạm.
+- **Kế Toán & Cưỡng Chế Hạn Ngạch Lưu Trữ Người Dùng (Non-destructive Storage Quotas):**
+  - Bổ sung trường `users.storage_quota_mb` (mặc định 2048 MB = 2 GB).
+  - Triển khai `UserQuotaService` hạch toán chính xác tổng dung lượng lưu trữ trên đĩa (`artifacts`, `master_exports`, `assets`).
+  - Cưỡng chế HTTP 413 `USER_STORAGE_QUOTA_EXCEEDED` tại upload reference, submit speech job, và ghép nối master export. Đảm bảo dọn dẹp nguyên tử tệp tạm khi phát sinh lỗi.
+- **Bộ Điều Phối Tài Nguyên Công Bằng (Fair-Share Scheduling & Priority Preemption):**
+  - Cải tiến `DurableQueueService.claim_next_job`: Ưu tiên cấp phát slot phần cứng (1 GPU, 1 CPU) theo nguyên tắc **Least-Active-User-First** trong cùng một nhóm ưu tiên (`priority`).
+  - Duy trì cơ chế ưu tiên vượt cấp (**Priority Preemption**): Job có độ ưu tiên cao hơn luôn được chọn trước.
+  - Áp dụng giới hạn `MAX_OUTSTANDING_JOBS_PER_USER = 25`, từ chối với HTTP 429 `TOO_MANY_OUTSTANDING_JOBS` nếu người dùng vượt trần cho phép.
+- **Bảo Vệ Đăng Nhập & Chống Dò Quét Tài Khoản (Brute-Force & Credential Hardening):**
+  - Tạo bảng `login_attempts` và dịch vụ `LoginProtectionService` với cơ chế Sliding Window 15 phút. Khóa tài khoản/IP tạm thời sau 5 lần sai mật khẩu với HTTP 429 `TOO_MANY_LOGIN_ATTEMPTS` kèm header `Retry-After: 900`.
+  - Bảo vệ chống user enumeration bằng thông điệp trung lập `"Incorrect username or password."`.
+  - Triển khai endpoint đổi mật khẩu an toàn với xác thực mật khẩu hiện tại và độ dài tối thiểu $\ge 8$ ký tự.
+- **Di Trú Cơ Sở Dữ Liệu An Toàn (Database Migration 20261009_0005):**
+  - Tập lệnh `alembic/versions/20261009_0005_phase5a_rbac_and_quotas.py` tạo bảng `login_attempts` và thêm cột `storage_quota_mb`.
+  - Cập nhật test migration và sao lưu an toàn cơ sở dữ liệu sản xuất tại `D:\AIVoiceStudioData\backups/`.
+- **Bảo Đảm Chất Lượng & Kiểm Thử Toàn Diện:**
+  - 7/7 bài kiểm thử tích hợp chuyên biệt cho Phase 5A PASSED.
+  - 78/78 bài kiểm thử toàn bộ hệ thống PASSED 100% trong 186s.
+  - Frontend TypeScript & Vite build thành công sạch sẽ (0 lỗi).
+
 ## 2026-10-09 — Phase 4 Security Hotfix R2: Remove JWT Query Authentication from Master Audio Downloads (Independent Security PASS)
 
 - **CWE-598 Remediation (Removal of Query Parameter Authentication):**
