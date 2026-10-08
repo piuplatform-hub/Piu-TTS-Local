@@ -51,7 +51,7 @@ async def get_project(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    project = await ProjectService.get_project_record(db, project_id, current_user.id)
+    project = await ProjectService.reconcile_project_segments(db, current_user, project_id)
     return project
 
 

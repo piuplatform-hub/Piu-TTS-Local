@@ -20,6 +20,7 @@ from apps.server.src.models.character import CharacterRecord
 from apps.server.src.models.segment import ScriptSegmentRecord, SegmentRevisionRecord
 from apps.server.src.models.export import ProjectExportRecord
 from apps.server.src.models.job import JobRecord
+from apps.server.src.models.artifact import ArtifactRecord
 from apps.server.src.models.user import User
 from apps.server.src.schemas.job import TTSJobSubmitRequest
 from apps.server.src.services.job_service import JobService
@@ -266,11 +267,11 @@ class ProjectService:
         new_hash = compute_segment_hash(seg.text, seg.engine_id, seg.voice_id, seg.parameters)
         seg.text_hash = new_hash
 
-        # Partial Invalidation: If content changed on an already completed segment, mark it as stale
+        # Partial Invalidation: If content changed, mark as stale if completed or had audio, else draft
         if new_hash != old_hash:
-            if seg.status == "completed":
+            if seg.status == "completed" or seg.active_artifact_id:
                 seg.status = "stale"
-            elif seg.status not in ("queued", "rendering"):
+            else:
                 seg.status = "draft"
 
         seg.version += 1
@@ -547,36 +548,84 @@ class ProjectService:
             if not job:
                 continue
 
+            payload = getattr(job, "payload_data", None) or getattr(job, "request_payload", None) or {}
+            job_text = payload.get("text", "")
+            job_voice = payload.get("voice_id", "")
+            job_params = payload.get("parameters", {})
+            job_hash = compute_segment_hash(job_text, job.engine_id, job_voice, job_params)
+            is_matching_job = (job_hash == seg.text_hash)
+
             if job.status == "completed" and job.artifact_id:
-                if seg.active_artifact_id != job.artifact_id:
-                    # Non-destructive: archive previous artifact to revisions
-                    if seg.active_artifact_id:
+                if is_matching_job:
+                    # Job corresponds to CURRENT segment content
+                    if seg.active_artifact_id != job.artifact_id:
+                        # Non-destructive: archive previous artifact to revisions
+                        if seg.active_artifact_id:
+                            next_rev = len(seg.revisions) + 1
+                            dur = 0.0
+                            old_art = await session.get(ArtifactRecord, seg.active_artifact_id)
+                            if old_art and old_art.duration_seconds:
+                                dur = float(old_art.duration_seconds)
+                            rev = SegmentRevisionRecord(
+                                segment_id=seg.id,
+                                revision_number=next_rev,
+                                text=seg.text,
+                                engine_id=seg.engine_id,
+                                voice_id=seg.voice_id,
+                                parameters=seg.parameters,
+                                artifact_id=seg.active_artifact_id,
+                                job_id=seg.last_job_id,
+                                duration_seconds=dur,
+                            )
+                            session.add(rev)
+
+                        seg.active_artifact_id = job.artifact_id
+                        seg.status = "completed"
+                        seg.updated_at = datetime.now(timezone.utc)
+                        changed = True
+                    elif seg.status != "completed":
+                        seg.status = "completed"
+                        seg.updated_at = datetime.now(timezone.utc)
+                        changed = True
+                else:
+                    # STALE JOB: Segment was edited while older job was rendering!
+                    # Do NOT overwrite current segment's active artifact or mark it completed.
+                    # Preserve older audio into a SegmentRevisionRecord.
+                    rev_exists = any(r.artifact_id == job.artifact_id for r in seg.revisions)
+                    if not rev_exists:
                         next_rev = len(seg.revisions) + 1
+                        dur = 0.0
+                        art = await session.get(ArtifactRecord, job.artifact_id)
+                        if art and art.duration_seconds:
+                            dur = float(art.duration_seconds)
                         rev = SegmentRevisionRecord(
                             segment_id=seg.id,
                             revision_number=next_rev,
-                            text=seg.text,
-                            engine_id=seg.engine_id,
-                            voice_id=seg.voice_id,
-                            parameters=seg.parameters,
-                            artifact_id=seg.active_artifact_id,
-                            job_id=seg.last_job_id,
-                            duration_seconds=getattr(seg.active_artifact, "duration_seconds", 0.0) if seg.active_artifact else 0.0,
+                            text=job_text,
+                            engine_id=job.engine_id,
+                            voice_id=job_voice,
+                            parameters=job_params,
+                            artifact_id=job.artifact_id,
+                            job_id=job.id,
+                            duration_seconds=dur,
                         )
                         session.add(rev)
+                        changed = True
+                    if seg.status in ("rendering", "queued"):
+                        seg.status = "stale" if seg.active_artifact_id else "draft"
+                        seg.updated_at = datetime.now(timezone.utc)
+                        changed = True
 
-                    seg.active_artifact_id = job.artifact_id
-                    seg.status = "completed"
+            elif job.status == "failed":
+                if is_matching_job and seg.status != "failed":
+                    seg.status = "failed"
                     seg.updated_at = datetime.now(timezone.utc)
                     changed = True
-            elif job.status == "failed" and seg.status != "failed":
-                seg.status = "failed"
-                seg.updated_at = datetime.now(timezone.utc)
-                changed = True
-            elif job.status == "running" and seg.status != "rendering":
-                seg.status = "rendering"
-                seg.updated_at = datetime.now(timezone.utc)
-                changed = True
+            elif job.status == "running":
+                if is_matching_job and seg.status != "rendering":
+                    seg.status = "rendering"
+                    seg.updated_at = datetime.now(timezone.utc)
+                    changed = True
 
         if changed:
             project.updated_at = datetime.now(timezone.utc)

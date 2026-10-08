@@ -41,8 +41,8 @@ class ScriptSegmentRecord(Base):
     # Relationships
     project = relationship("ProjectRecord", back_populates="segments")
     character = relationship("CharacterRecord", back_populates="segments")
-    active_artifact = relationship("ArtifactRecord", foreign_keys=[active_artifact_id])
-    last_job = relationship("JobRecord", foreign_keys=[last_job_id])
+    active_artifact = relationship("ArtifactRecord", foreign_keys=[active_artifact_id], lazy="selectin")
+    last_job = relationship("JobRecord", foreign_keys=[last_job_id], lazy="selectin")
     revisions = relationship("SegmentRevisionRecord", back_populates="segment", cascade="all, delete-orphan", lazy="selectin", order_by="SegmentRevisionRecord.revision_number.desc()")
 
     @property

@@ -89,6 +89,28 @@ export const DialogueStudioView: React.FC<DialogueStudioViewProps> = ({ projectI
     fetchProject();
   }, [projectId]);
 
+  // Auto-poll when in-flight jobs exist
+  useEffect(() => {
+    if (!project) return;
+    const hasInFlight = project.segments.some(s => s.status === 'queued' || s.status === 'rendering');
+    if (!hasInFlight) return;
+
+    const timer = setInterval(async () => {
+      try {
+        const data = await api.getProject(projectId);
+        setProject(data);
+        const stillInFlight = data.segments.some(s => s.status === 'queued' || s.status === 'rendering');
+        if (!stillInFlight) {
+          clearInterval(timer);
+        }
+      } catch (e) {
+        console.warn('Dialogue auto-poll error', e);
+      }
+    }, 2000);
+
+    return () => clearInterval(timer);
+  }, [project, projectId]);
+
   // Audio Playback handler
   const handlePlayAudio = (segmentId: string, artifactId: string) => {
     if (playingSegmentId === segmentId) {

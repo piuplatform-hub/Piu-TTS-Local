@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     # Scheduler Execution Mode (True: runs inside FastAPI lifespan; False: external runner.py)
     EMBEDDED_SCHEDULER: bool = True
 
+    # Audio DSP & FFmpeg binary path (configurable via STUDIO_FFMPEG_PATH env)
+    STUDIO_FFMPEG_PATH: str = ""
+
     def get_data_dir(self) -> Path:
         """
         Returns resolved data directory path. Creates subdirectories if they don't exist.

@@ -1,5 +1,39 @@
 # Documentation changelog
 
+## 2026-10-08 — Phase 4 Acceptance Gate Remediation & Official Release Pass (Gate PASS)
+
+- **Audit & Asynchronous Data Integrity Remediation:**
+  - Resolved stale job overwrite vulnerability in `ProjectService.reconcile_project_segments` via deterministic `text_hash` comparison against in-flight job hashes.
+  - Safeguarded non-destructive revision preservation in `SegmentRevisionRecord` when segments are edited mid-render.
+  - Fixed relationship lazy loading with `lazy="selectin"` on `ScriptSegmentRecord.active_artifact` and `last_job`, eliminating `MissingGreenlet` exceptions in async SQLAlchemy operations.
+  - Upgraded `get_project` API endpoint to automatically trigger reconciliation, providing live, up-to-date state to web clients.
+- **Audio DSP & FFmpeg Mastering Hardening:**
+  - Configured `STUDIO_FFMPEG_PATH` supporting host FFmpeg v7.1.1 essentials (GPLv3).
+  - Implemented Two-Pass EBU R128 loudness normalization and True Peak limiting ($\le -1.0\text{ dBTP}$).
+  - Fixed MP3 sample rate preservation with explicit `-ar <sample_rate>` flag.
+  - Hardened Concat Demuxer against command/path injection via strict quotation escaping and ownership validation.
+  - Implemented authentic technical measurements (`measure_audio_metrics`) capturing SHA-256, duration, sample rate, bit depth, Integrated LUFS, and True Peak dBTP.
+- **Frontend Studio UI Upgrades:**
+  - Added 2-second auto-polling in `SpeechStudioView.tsx` and `DialogueStudioView.tsx` during background rendering.
+  - Rebuilt production bundle (`apps/web/dist`) cleanly with 0 errors.
+- **Authentic Audio Production Deliverables (4 Workflows):**
+  - Generated 4 real master audio files in `D:\AIVoiceStudioData\acceptance_audio_phase4\`:
+    1. `workflow_a_vietnamese_master.wav`: VieNeu CPU 48kHz, 23.10s, -16.11 LUFS, -1.5 dBTP, SHA256: `beb17a4125c3...`
+    2. `workflow_b_chinese_master.mp3`: Qwen3 GPU 48kHz resampled 192kbps, 27.72s, -16.27 LUFS, -1.5 dBTP, SHA256: `2665833fffa7...`
+    3. `workflow_c_mixed_dialogue_master.wav`: Lan & Mei mixed dialogue, 21.63s, -16.19 LUFS, -1.5 dBTP, SHA256: `bc8778f9c8a3...`
+    4. `workflow_c_mixed_dialogue_master.mp3`: Lan & Mei mixed dialogue 192kbps, 21.67s, -16.19 LUFS, -1.5 dBTP, SHA256: `612857aeb141...`
+    5. `metrics_summary.json`: Detailed measurement metrics report.
+- **Full Two-Tier Regression Suite (100% PASS):**
+  - 78/78 tests passed in 222.48s (0 failed, 0 skipped), including all Unit, Contract, Security, Integration, Data Integrity, and Chrome Browser E2E tests.
+- **Database Backup & Restore Verification:**
+  - Created verified SQLite online backup: `studio_20261008_154951.db` (344,064 bytes, all 12 tables verified).
+  - Validated independent restoration without downtime or data corruption.
+- **Governance Deliverables Published:**
+  - `docs/reports/reviews/PHASE_04_ACCEPTANCE_REVIEW.md`
+  - `docs/reports/tests/PHASE_04_END_TO_END_EVIDENCE.md`
+  - `docs/reports/benchmarks/PHASE_04_MASTER_AUDIO_VALIDATION.md`
+  - `docs/reports/phases/PHASE_04_REMEDIATION_CHANGELOG.md`
+
 ## 2026-10-08 — Phase 4 Professional Studio UX, Long-Form TTS, Dialogue Workspace & Audio Mastering Completed
 
 - **Milestone 4A (Project Workspace & Optimistic Concurrency Control):**
