@@ -13,10 +13,11 @@
 
 | Tham số kỹ thuật | Giá trị cấu hình đề xuất | Giá trị phê duyệt thực tế | Trạng thái |
 | :--- | :--- | :--- | :---: |
-| **Workstation Hostname** | `studio-server.local` | *(Điền tên máy trạm thực tế)* | [ ] Chưa duyệt |
-| **Static LAN IP** | `192.168.1.50` | *(Điền IP cố định của máy)* | [ ] Chưa duyệt |
-| **Allowed Client Subnet** | `192.168.1.0/24` | *(Hoặc danh sách IP máy biên tập)* | [ ] Chưa duyệt |
+| **Workstation Hostname** | `studio-server.local` | *(Điền tên máy trạm thực tế — không suy đoán)* | [ ] Chưa duyệt |
+| **Static LAN IP** | `192.168.1.50` | *(Điền IP cố định máy trạm — không suy đoán)* | [ ] Chưa duyệt |
+| **Allowed Client Subnet** | `192.168.1.0/24` | *(Dải mạng phòng thu được cấp phép)* | [ ] Chưa duyệt |
 | **Gateway Port** | `9443` (TCP HTTPS Only) | `9443` (TCP HTTPS Only) | [ ] Chưa duyệt |
+| **Root CA SPKI Fingerprint**| *(Trích xuất từ root.crt)*| *(Bắt buộc đối soát trên máy khách)* | [ ] Chưa duyệt |
 | **HTTP Port 8080** | **ĐÓNG (DISABLED)** | **ĐÓNG (DISABLED)** | [x] Đã khóa |
 | **Network Profile** | **Private Network duy nhất** | Private Network | [ ] Chưa duyệt |
 
@@ -71,11 +72,15 @@
 Nếu phát hiện bất kỳ dấu hiệu bất thường nào trong quá trình vận hành LAN:
 
 ```powershell
-# 1. DỪNG TIẾN TRÌNH CADDY TRONG 5 GIÂY:
-Get-Process -Name caddy -ErrorAction SilentlyContinue | Stop-Process -Force
+# 1. DỪNG TIẾN TRÌNH CADDY LAN THEO ĐÚNG PID QUẢN LÝ:
+if (Test-Path "infra\caddy\caddy_lan.pid") {
+    $caddyPid = (Get-Content "infra\caddy\caddy_lan.pid").Trim()
+    if ($caddyPid) { Stop-Process -Id ([int]$caddyPid) -Force -ErrorAction SilentlyContinue }
+    Remove-Item "infra\caddy\caddy_lan.pid" -Force -ErrorAction SilentlyContinue
+}
 
-# 2. ĐÓNG CỔNG TƯỜNG LỬA WINDOWS NGAY LẬP TỨC:
-Remove-NetFirewallRule -DisplayName "AI Voice Studio LAN HTTPS Gateway (Port 9443)" -ErrorAction SilentlyContinue
+# 2. XÓA ĐÚNG LUẬT TƯỜNG LỬA ĐỊNH DANH DUY NHẤT:
+Remove-NetFirewallRule -Name "AIVoiceStudio_LAN_Gateway_TCP_9443" -ErrorAction SilentlyContinue
 
 # 3. TRẢ CẤU HÌNH VỀ LOOPBACK CHO MÁY TRẠM:
 .\infra\caddy\caddy.exe run --config "infra\caddy\Caddyfile"

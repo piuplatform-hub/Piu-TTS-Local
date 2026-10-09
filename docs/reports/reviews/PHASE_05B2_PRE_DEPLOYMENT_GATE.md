@@ -136,6 +136,10 @@ Một bài kiểm thử E2E Playwright chuyên sâu trên trình duyệt Chrome 
   - Khóa ngoại và toàn vẹn dữ liệu: **100% hợp lệ**.
 - **Kết luận**: Bản sao lưu `studio_db_online_backup_verified_20261009_073916.db` **ĐỦ ĐIỀU KIỆN LÀM ĐIỂM PHỤC HỒI AN TOÀN TUYỆT ĐỐI** cho hệ thống.
 
+### 4.5. Đối soát Kiểm toán Độc lập (Forensic Reconciliation Confirmation)
+- **Xác nhận số liệu snapshot thực tế:** Kiểm toán pháp y độc lập ngày 09/10/2026 xác nhận số liệu trong Báo cáo này là **CHÍNH XÁC 100%** dựa trên file vật lý (15 bảng, 14 người dùng, 421,888 bytes, SHA-256: `cac11bc5c4c849a9fdee4b2d8d9ad94f04a1f34378bdddc91e54b4b20c3a0818`).
+- **Phân biệt với môi trường Seed mẫu:** Bộ test fixture và seed mẫu mặc định chỉ tạo 4 tài khoản (`admin`, `editor`, `viewer`, `sec_tester`) và 12 bảng ban đầu. Toàn bộ 14 tài khoản trong snapshot này bao gồm cả tài khoản QA và các tài khoản kiểm thử tải/bảo mật đã phát sinh trong Phase 5A.
+
 ---
 
 ## 5. MẪU CẤU HÌNH CADDYFILE CHO MẠNG LAN (TÁCH BIỆT LOCALHOST)
@@ -234,31 +238,31 @@ flowchart TD
 
 Trong trường hợp có bất kỳ sự cố kết nối, xung đột cổng, lỗi binary hoặc yêu cầu dừng khẩn cấp:
 
-### Bước 1: Dừng tiến trình Caddy Reverse Proxy
+### Bước 1: Dừng Chính Xác Tiến trình Caddy Theo Quản lý PID
 ```powershell
-# Dừng tiến trình caddy đang chạy
-Get-Process -Name caddy -ErrorAction SilentlyContinue | Stop-Process -Force
+if (Test-Path "infra\caddy\caddy_lan.pid") {
+    $caddyPid = (Get-Content "infra\caddy\caddy_lan.pid").Trim()
+    if ($caddyPid) { Stop-Process -Id ([int]$caddyPid) -Force -ErrorAction SilentlyContinue }
+    Remove-Item "infra\caddy\caddy_lan.pid" -Force -ErrorAction SilentlyContinue
+}
 
 # Xác nhận cổng 9443 đã được giải phóng hoàn toàn
 Get-NetTCPConnection -LocalPort 9443 -ErrorAction SilentlyContinue
 ```
 
-### Bước 2: Hạ cấp phiên bản Binary Caddy về v2.9.1 (Nếu nghi ngờ lỗi binary v2.11.7)
+### Bước 2: Bảo tồn Binary Caddy v2.11.7 (Chỉ hạ cấp khi có lỗi tương thích binary)
+Caddy v2.11.7 đã được kiểm chứng hoạt động ổn định trên môi trường Windows x64. Giữ nguyên binary này; việc hạ cấp về v2.9.1 chỉ thực hiện khi và chỉ khi phát hiện lỗi tương thích binary nghiêm trọng.
+
+### Bước 3: Đóng cổng tường lửa Windows Định danh Duy nhất
 ```powershell
-Copy-Item -Path "infra\caddy\caddy_v2.9.1.exe" -Destination "infra\caddy\caddy.exe" -Force
-.\infra\caddy\caddy.exe version
+Remove-NetFirewallRule -Name "AIVoiceStudio_LAN_Gateway_TCP_9443" -ErrorAction SilentlyContinue
 ```
 
-### Bước 3: Khôi phục cấu hình Gateway về Localhost Staging thuần túy
+### Bước 4: Khôi phục cấu hình Gateway về Localhost Staging thuần túy
 Sử dụng lại file cấu hình gốc [infra/caddy/Caddyfile](file:///d:/C/Dev/du%20an/TTS/infra/caddy/Caddyfile):
 ```powershell
 .\infra\caddy\caddy.exe validate --config "infra\caddy\Caddyfile"
 .\infra\caddy\caddy.exe run --config "infra\caddy\Caddyfile"
-```
-
-### Bước 4: Đóng cổng tường lửa Windows (Thu hồi quyền truy cập mạng ngoài)
-```powershell
-Remove-NetFirewallRule -DisplayName "AI Voice Studio LAN HTTPS Gateway (Port 9443)" -ErrorAction SilentlyContinue
 ```
 
 ### Bước 5: Bảo tồn Dữ liệu & Phân định Quy trình Phục hồi Thảm họa (P0 Core Principle)

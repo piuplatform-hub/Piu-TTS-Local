@@ -236,9 +236,14 @@ cur.execute('SELECT COUNT(*) FROM login_attempts WHERE username LIKE "%caddy%";'
 - **Giải pháp khắc phục**: Đã xây dựng công cụ chuẩn mực [scripts/create_verified_online_backup.py](file:///d:/C/Dev/du%20an/TTS/scripts/create_verified_online_backup.py) sử dụng `sqlite3.Connection.backup()` (SQLite Online Backup API).
 - **Kết quả sao lưu trực tuyến đã kiểm chứng**:
   - Tệp sao lưu: `D:\AIVoiceStudioData\backups\studio_db_online_backup_verified_20261009_073916.db`
-  - Kích thước: 131,072 bytes.
+  - Kích thước ghi nhận ban đầu: 131,072 bytes *(Xem ghi chú đính chính kiểm toán bên dưới)*.
   - Kiểm tra tính toàn vẹn: `PRAGMA integrity_check` -> `ok`.
   - Số lượng người dùng: 14; Số lượng dự án: 9.
+
+> [!NOTE]
+> **ĐÍNH CHÍNH KIỂM TOÁN ĐỘC LẬP (AUDIT AMENDMENT — PHASE 5B-2 EVIDENCE RECONCILIATION):**  
+> Kiểm toán pháp y độc lập ngày 09/10/2026 xác nhận: Tệp sao lưu vật lý `studio_db_online_backup_verified_20261009_073916.db` có dung lượng thực tế là **421,888 bytes** (chính xác 103 trang SQLite x 4096 bytes), mã băm SHA-256 là `cac11bc5c4c849a9fdee4b2d8d9ad94f04a1f34378bdddc91e54b4b20c3a0818`, cấu trúc gồm **15 bảng** (`alembic_version` `20261009_0006`) và **14 người dùng**.  
+> Con số `131,072 bytes` ghi nhận ở trên là lỗi typo sao chép ước tính lý thuyết (32 trang x 4096 bytes) tại thời điểm soạn thảo báo cáo; tệp snapshot vật lý chưa từng thay đổi kể từ khi khởi tạo lúc 14:39:16 +07.
 
 ---
 

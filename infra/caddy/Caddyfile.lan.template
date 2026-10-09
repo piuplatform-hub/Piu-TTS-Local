@@ -27,7 +27,7 @@
 # ------------------------------------------------------------------------------
 # HARDENED HTTPS LAN GATEWAY (TLS TERMINATION & PROXYING ONLY)
 # ------------------------------------------------------------------------------
-https://{$LAN_HOSTNAME:studio.local}:9443, https://{$LAN_IP:127.0.0.1}:9443 {
+https://{$LAN_HOSTNAME:studio.local}:{$LAN_PORT:9443}, https://{$LAN_IP:127.0.0.1}:{$LAN_PORT:9443} {
 	# Explicit IP binding — Fail-closed to 127.0.0.1 if LAN_IP is undefined
 	bind {$LAN_IP:127.0.0.1}
 
