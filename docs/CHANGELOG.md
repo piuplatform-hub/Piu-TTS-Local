@@ -1,5 +1,32 @@
 # Documentation changelog
 
+## 2026-10-09 — Phase 5A Final Closure R2: Authentication Throttling, Quota Lease Safety & Autonomous Batch Processing (Acceptance PASS)
+
+- **Hệ Thống Điều Tiết Xác Thực 3 Tầng Độc Lập (Priority P0 Multi-Tier Login Throttling):**
+  - Mở rộng `LoginProtectionService` với 3 tầng phòng thủ độc lập:
+    1. Cặp `(ip_address, username)` $\ge 5$ lần thất bại $\to$ Khóa cặp 15 phút.
+    2. Tài khoản `username` trên mọi IP nguồn $\ge 10$ lần thất bại $\to$ Khóa tài khoản 15 phút (chống tấn công brute-force phân tán).
+    3. IP nguồn trên mọi tài khoản $\ge 20$ lần thất bại $\to$ Khóa IP nguồn 15 phút (chống tấn công credential spraying).
+  - Trích xuất IP an toàn từ socket TCP peer (`request.client.host`), loại bỏ triệt để nguy cơ IP spoofing qua `X-Forwarded-For`.
+  - Phản hồi đồng nhất HTTP 401 `INVALID_CREDENTIALS` chống dò quét tài khoản (Enumeration Resistance).
+- **Vòng Đời Hạn Ngạch Nguyên Tử & An Toàn Thuê (Atomic Quota Reservation Lifecycle & Lease Safety):**
+  - Bổ sung `renew_job_reservation`: Tự động gia hạn TTL của reservation thêm 1800 giây trong mỗi nhịp heartbeat của worker.
+  - Cải tiến `cleanup_expired_reservations`: Bảo vệ tuyệt đối các tác vụ đang `QUEUED`, `PREPARING`, `RUNNING` có lease hợp lệ khỏi việc thu hồi sớm.
+  - Từ chối công nhân trễ hạn (stale worker) với HTTP 409 `RESERVATION_STALE_OR_RECLAIMED` khi reservation đã bị thu hồi hoặc hết hạn.
+  - Bọc quy trình `AudioDspService.export_project` trong xử lý nguyên tử: Giải phóng reservation và xóa sạch tệp tạm (`unlink`) khi xuất bản lỗi.
+- **Phân Tích Đánh Đổi Độ Ưu Tiên & Bỏ Đói (Priority Fairness & Starvation Trade-offs):**
+  - Chứng minh bằng thực nghiệm: Round-Robin công bằng trong cùng cấp ưu tiên, Head-of-Line Priority Precedence giữa các cấp ưu tiên khác nhau.
+  - Tài liệu hóa quyết định không áp dụng Priority Aging nhằm bảo vệ mục tiêu kinh doanh/nghiệp vụ cấp bách của phòng thu âm.
+- **Xử Lý Kịch Bản Dài Tập Tự Trị (Autonomous Progressive Batch Processing):**
+  - Tích hợp `reconcile_and_admit_pending_segments` vào vòng lặp nền của `DurableJobScheduler` với Admission Lock (`asyncio.Lock`) và Idempotency Key duy nhất (`seg-{segment_id}-{text_hash[:32]}`).
+  - Kiểm chứng thành công kịch bản nộp 100 phân đoạn mà không cần polling từ trình duyệt (`GET /projects`), vượt qua an toàn sự cố khởi động lại API và Runner, sinh ra 100 audio artifact độc bản.
+- **Sao Lưu Cơ Sở Dữ Liệu SQLite Qua CLI:**
+  - Hoàn thành xác thực `python -m apps.server.src.backup create` và `verify` trên tệp `studio_20261009_021229.db` (417,792 bytes, SHA256: `d440ec52bbb731b417d936f42f5b21434598d453d57f5fd5e8d280d2c0a56527`, integrity `ok`, đủ 15 bảng).
+- **Kiểm Thử Toàn Diện & Đóng Gói Sản Phẩm:**
+  - 102/102 bài kiểm thử unit & integration PASSED 100% (275s).
+  - 4/4 bài kiểm thử trình duyệt E2E Playwright PASSED 100%.
+  - Frontend production build thành công (1604 modules, 0 lỗi TypeScript).
+
 ## 2026-10-09 — Phase 5A Release Gate R1: Fair-Share Correctness, Atomic Quotas & Multi-User Security (Acceptance PASS)
 
 - **Điều Phối Công Bằng Đa Tầng & Chống Bỏ Đói (4-Tier Anti-Starvation Fair-Share Scheduling):**

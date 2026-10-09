@@ -20,26 +20,92 @@ from ..models.asset import ReferenceAssetRecord
 from ..models.export import ProjectExportRecord
 from ..models.project import ProjectRecord
 from ..models.storage_reservation import StorageReservationRecord
+from ..models.job import JobRecord
 
 
 class UserQuotaService:
     @staticmethod
     async def cleanup_expired_reservations(db: AsyncSession) -> int:
         """
-        Marks active reservations whose lease has expired as EXPIRED.
-        Recovers abandoned capacity after worker or client crashes.
+        Marks active reservations whose lease has expired as EXPIRED,
+        while strictly protecting active, healthy jobs (QUEUED, PREPARING, RUNNING).
+        Recovers truly abandoned capacity after worker or client crashes.
+        """
+        now = datetime.now(timezone.utc)
+
+        # 1. Non-job reservations (e.g. abandoned exports or asset uploads) that expired
+        stmt_standalone = (
+            update(StorageReservationRecord)
+            .where(
+                StorageReservationRecord.status == "ACTIVE",
+                StorageReservationRecord.job_id.is_(None),
+                StorageReservationRecord.expires_at <= now,
+            )
+            .values(status="EXPIRED", updated_at=now)
+        )
+        res_standalone = await db.execute(stmt_standalone)
+        expired_count = res_standalone.rowcount or 0
+
+        # 2. Job-associated reservations: only expire if job is terminated or abandoned
+        stmt_job_res = select(StorageReservationRecord).where(
+            StorageReservationRecord.status == "ACTIVE",
+            StorageReservationRecord.job_id.is_not(None),
+            StorageReservationRecord.expires_at <= now,
+        )
+        res_cand = await db.execute(stmt_job_res)
+        candidates = res_cand.scalars().all()
+
+        for cand in candidates:
+            stmt_job = select(JobRecord).where(JobRecord.id == cand.job_id)
+            res_job = await db.execute(stmt_job)
+            job = res_job.scalar_one_or_none()
+
+            is_dead = False
+            if not job:
+                is_dead = True
+            elif job.status in ("completed", "failed", "cancelled"):
+                is_dead = True
+            elif job.status in ("preparing", "running"):
+                if job.lease_expires_at:
+                    job_lease = job.lease_expires_at if job.lease_expires_at.tzinfo else job.lease_expires_at.replace(tzinfo=timezone.utc)
+                    if job_lease <= now:
+                        is_dead = True
+                else:
+                    is_dead = True
+            # Note: if job is 'queued', the job is legitimately waiting for a hardware slot; do NOT expire!
+
+            if is_dead:
+                cand.status = "EXPIRED"
+                cand.updated_at = now
+                expired_count += 1
+
+        await db.flush()
+        return expired_count
+
+    @staticmethod
+    async def renew_job_reservation(
+        db: AsyncSession,
+        job_id: str,
+        extend_seconds: int = 1800,
+    ) -> bool:
+        """
+        Extends the lease expiration for any ACTIVE reservations associated with an active job.
+        Called during worker heartbeats to guarantee healthy long-running jobs are never reclaimed.
         """
         now = datetime.now(timezone.utc)
         stmt = (
             update(StorageReservationRecord)
             .where(
+                StorageReservationRecord.job_id == job_id,
                 StorageReservationRecord.status == "ACTIVE",
-                StorageReservationRecord.expires_at <= now,
             )
-            .values(status="EXPIRED", updated_at=now)
+            .values(
+                expires_at=now + timedelta(seconds=extend_seconds),
+                updated_at=now,
+            )
         )
         res = await db.execute(stmt)
-        return res.rowcount
+        return (res.rowcount or 0) > 0
 
     @staticmethod
     async def get_user_storage_usage(
@@ -181,27 +247,28 @@ class UserQuotaService:
         """
         Finalizes an active reservation into permanent storage.
         Reconciles any disparity between estimated and actual bytes.
+        Rejects stale workers attempting to commit expired/reclaimed reservations.
         """
         now = datetime.now(timezone.utc)
         stmt = select(StorageReservationRecord).where(StorageReservationRecord.id == reservation_id)
         res = await db.execute(stmt)
         reservation = res.scalar_one_or_none()
         if not reservation:
-            return
+            raise AppException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Reservation {reservation_id} not found.",
+                code="RESERVATION_NOT_FOUND",
+            )
 
-        # If actual bytes exceeded the initial estimate, verify we don't breach quota
-        excess_bytes = max(0, actual_bytes - reservation.reserved_bytes)
-        if excess_bytes > 0:
-            usage = await UserQuotaService.get_user_storage_usage(db, reservation.user_id, include_active_reservations=True)
-            quota_mb = usage["quota_mb"]
-            if quota_mb > 0 and (usage["used_bytes"] + excess_bytes) > usage["quota_bytes"]:
-                # Mark as exceeded but still transition to committed to record real size
-                reservation.reserved_bytes = actual_bytes
-                reservation.status = "COMMITTED"
-                reservation.updated_at = now
-                await db.flush()
-                return
+        if reservation.status != "ACTIVE":
+            raise AppException(
+                status_code=status.HTTP_409_CONFLICT,
+                title="Stale Reservation",
+                detail=f"Cannot commit reservation {reservation_id}: status is {reservation.status} (expired or reclaimed).",
+                code="RESERVATION_STALE_OR_RECLAIMED",
+            )
 
+        # Reconcile actual bytes into permanent accounting
         reservation.reserved_bytes = actual_bytes
         reservation.status = "COMMITTED"
         reservation.updated_at = now
@@ -215,14 +282,24 @@ class UserQuotaService:
     ) -> None:
         """
         Finalizes the active reservation associated with a specific TTS job.
+        Rejects stale workers if reservation was already expired or reclaimed.
         """
         stmt = select(StorageReservationRecord).where(
             StorageReservationRecord.job_id == job_id,
-            StorageReservationRecord.status == "ACTIVE",
         )
         res = await db.execute(stmt)
         reservations = res.scalars().all()
+        if not reservations:
+            return
+
         for r in reservations:
+            if r.status != "ACTIVE":
+                raise AppException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    title="Stale Reservation",
+                    detail=f"Cannot commit reservation for job {job_id}: reservation is {r.status} (expired or reclaimed).",
+                    code="RESERVATION_STALE_OR_RECLAIMED",
+                )
             await UserQuotaService.commit_reservation(db, r.id, actual_bytes)
 
     @staticmethod

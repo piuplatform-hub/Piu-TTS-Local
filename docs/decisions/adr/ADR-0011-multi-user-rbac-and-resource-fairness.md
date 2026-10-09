@@ -34,18 +34,20 @@ Khi chuyển sang môi trường nhiều người dùng qua mạng LAN:
 ### 1. Thuật toán điều phối công bằng đa tầng (4-Tier Anti-Starvation Fair-Share Scheduling)
 Để giải quyết bài toán chống bỏ đói khi phần cứng chỉ có 1 GPU slot khả dụng:
 - **Tầng 1 (Head-of-Line Priority Precedence):** Ưu tiên các job có `priority` cao hơn (`JobRecord.priority DESC`).
+  - *Quyết định đánh đổi có chủ đích (Deliberate Trade-off):* Không áp dụng Priority Aging (không tự tăng ưu tiên theo thời gian) nhằm bảo toàn tính cấp bách của các tác vụ preview/export khẩn cấp của phòng thu.
 - **Tầng 2 (In-flight Active Burden):** Ưu tiên người dùng đang có ít job chạy trên loại tài nguyên đó hơn (`RUNNING` / `PREPARING`).
 - **Tầng 3 (Persistent Anti-Starvation Round-Robin):** Đối với các ứng viên có cùng in-flight burden (ví dụ khi slot vừa giải phóng và active count của tất cả người dùng đều bằng 0), ưu tiên người dùng có `last_dispatched_at` trong bảng `user_scheduling_states` xa nhất trong quá khứ.
 - **Tầng 4 (Intra-user FIFO):** Xếp theo thứ tự nộp của cùng một người dùng (`queued_at ASC`).
 - Cập nhật nguyên tử: Khi một job được nhận (`claim`), hệ thống cập nhật `last_dispatched_at = now()` cho người dùng đó.
-- Bounded Progressive Batch: Giới hạn tối đa `MAX_OUTSTANDING_JOBS_PER_USER = 25`. Khi nộp batch dài tập (ví dụ 30–100 segments), các segment vượt trần được chuyển về `"pending"` và được tự động bơm vào hàng đợi khi các job trước hoàn thành.
+- Bounded Autonomous Progressive Batch: Giới hạn tối đa `MAX_OUTSTANDING_JOBS_PER_USER = 25`. Kịch bản dài tập (lên đến 100 segments) được tự động điều tiết nạp lũy tiến bởi background daemon thông qua Admission Lock (`asyncio.Lock`) và Idempotency Key duy nhất (`seg-{segment_id}-{text_hash[:32]}`), hoàn toàn không phụ thuộc browser polling.
 
 ### 2. Quản lý hạn ngạch nguyên tử 2 pha (Two-Phase Atomic Storage Reservation)
 - Bảng `storage_reservations` quản lý vòng đời dung lượng:
-  - **Pha 1 (Reserve):** Tính toán `Dung lượng thực tế + Dung lượng đang đặt trước active`. Nếu vượt `users.storage_quota_mb` (2048 MB), từ chối ngay với HTTP 413. Nếu còn chỗ, tạo reservation `ACTIVE` với thời hạn 30 phút.
-  - **Pha 2 (Commit / Release):** Chuyển reservation sang `COMMITTED` khi tệp được sinh hoàn tất hoặc giải phóng (`RELEASED`) trong khối `finally` nếu tác vụ thất bại/bị hủy.
+  - **Pha 1 (Reserve):** Tính toán `Dung lượng thực tế + Dung lượng đang đặt trước active`. Nếu vượt `users.storage_quota_mb` (2048 MB), từ chối ngay với HTTP 413. Nếu còn chỗ, tạo reservation `ACTIVE` với thời hạn ban đầu.
+  - **Gia hạn tự động qua Heartbeat:** Worker gửi heartbeat định kỳ gia hạn thêm 1800 giây cho reservation của job đang xử lý.
+  - **Pha 2 (Commit / Release):** Chuyển reservation sang `COMMITTED` khi tệp được sinh hoàn tất hoặc giải phóng (`RELEASED`) trong khối `finally` nếu tác vụ thất bại/bị hủy. Từ chối công nhân trễ hạn (stale worker) với HTTP 409 `RESERVATION_STALE_OR_RECLAIMED`. Tự động xóa tệp dở dang khi xuất bản export thất bại.
 
-### 3. Ma trận phân quyền (RBAC Matrix)
+### 3. Ma trận phân quyền (RBAC Matrix) & Điều tiết xác thực 3 tầng
 
 | Vai trò (Role) | Xem dự án & Nghe âm thanh | Tạo/Sửa kịch bản & Render TTS | Xuất bản Master DSP | Upload & Dùng Voice Asset | Quản lý người dùng & Động cơ AI |
 | :--- | :---: | :---: | :---: | :---: | :---: |
@@ -53,16 +55,22 @@ Khi chuyển sang môi trường nhiều người dùng qua mạng LAN:
 | **Editor** | Cho phép | Cho phép (Dự án riêng) | Cho phép | Chỉ dùng Asset của mình | Bị từ chối (403) |
 | **Admin** | Cho phép | Cho phép (Toàn bộ) | Cho phép | **Chỉ dùng Asset của mình** | Cho phép (Độc quyền) |
 
+- **Điều tiết đăng nhập 3 tầng độc lập:**
+  1. Cặp `(ip, username)` $\ge 5$ lần thất bại $\to$ Khóa cặp 15 phút.
+  2. Tài khoản `username` trên mọi IP $\ge 10$ lần thất bại $\to$ Khóa tài khoản 15 phút (chống distributed brute-force).
+  3. IP nguồn trên mọi tài khoản $\ge 20$ lần thất bại $\to$ Khóa IP nguồn 15 phút (chống credential spraying).
+  4. Trích xuất IP trực tiếp từ TCP socket (`request.client.host`), loại bỏ nguy cơ IP spoofing qua `X-Forwarded-For`.
+
 ## Risks / security / operations
 - **Bảo toàn phần cứng:** Cơ chế 1 GPU slot và 1 CPU slot ngăn chặn hoàn toàn nguy cơ sập worker hoặc tràn VRAM (CUDA OOM).
 - **Ngắt ngang tác vụ (Non-Preemptive):** Thuật ngữ được chuẩn hóa thành Head-of-Line Priority Precedence; tác vụ mạng nơ-ron đang chạy trên GPU không bị ngắt ngang để tránh lãng phí tài nguyên tính toán.
 
 ## Acceptance & evidence
-- [x] Khi Người dùng A nộp 25 jobs và Người dùng B nộp 1 job ngay sau đó, job của Người dùng B được thực thi ngay ở lượt thứ 2 (A1 $\to$ B1 $\to$ A2), loại bỏ hoàn toàn starvation.
+- [x] Khi Người dùng A nộp 25 jobs và Người dùng B nộp 1 job ngay sau đó, job của Người dùng B được thực thi ngay ở lượt thứ 2 (A1 $\to$ B1 $\to$ A2), loại bỏ hoàn toàn starvation trong cùng cấp độ ưu tiên.
 - [x] Hai yêu cầu đồng thời 80MB trên hạn ngạch 100MB được phân định nguyên tử: đúng 1 thành công, 1 bị từ chối với HTTP 413, không xảy ra over-commit.
 - [x] Đổi mật khẩu tài khoản lập tức thu hồi toàn bộ token cũ với HTTP 401 `TOKEN_REVOKED`.
-- [x] Dò mật khẩu sai 5 lần trên 1 tài khoản chỉ khóa tài khoản đó, không gây ảnh hưởng đến tài khoản khác trên cùng IP.
-- [x] Kịch bản dài tập 30 phân đoạn nộp thành công thông qua progressive batching, không phát sinh lỗi 429.
+- [x] Điều tiết xác thực 3 tầng bảo vệ chống brute-force phân tán (10 IP/1 account), credential spraying (1 IP/20 accounts), và không gây ảnh hưởng chéo giữa các tài khoản hợp lệ trên cùng IP.
+- [x] Kịch bản dài tập 100 phân đoạn được xử lý tự trị hoàn toàn bởi background daemon mà không cần browser polling, vượt qua an toàn các sự cố khởi động lại API và Runner, sinh ra 100 audio artifact độc bản duy nhất.
 - [x] Tài khoản `viewer` bị chặn 403 trên toàn bộ mutations. Admin bị chặn 403 khi dùng voice asset của user khác.
 
 ## Decision / outcome / follow-up

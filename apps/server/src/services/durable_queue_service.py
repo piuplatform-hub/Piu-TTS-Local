@@ -286,16 +286,14 @@ class DurableQueueService:
             )
 
         # B. User Storage Quota Check & Atomic Capacity Reservation
-        job_id = str(uuid.uuid4())
         estimated_output_bytes = max(1024 * 1024, len(req.text) * 10000)
-        await UserQuotaService.reserve_capacity(
+        await UserQuotaService.assert_quota_available(
             db=db,
-            user=current_user.id,
-            estimated_bytes=estimated_output_bytes,
-            reservation_type="speech_job",
-            job_id=job_id,
-            timeout_seconds=3600,
+            user=current_user,
+            expected_additional_bytes=estimated_output_bytes,
         )
+
+        job_id = str(uuid.uuid4())
 
         # 5. Enqueue into SQLite WAL
         job = JobRecord(
@@ -314,6 +312,17 @@ class DurableQueueService:
             queued_at=datetime.now(timezone.utc),
         )
         db.add(job)
+        await db.flush()
+
+        # Bind capacity reservation to the flushed job
+        await UserQuotaService.reserve_capacity(
+            db=db,
+            user=current_user.id,
+            estimated_bytes=estimated_output_bytes,
+            reservation_type="speech_job",
+            job_id=job_id,
+            timeout_seconds=3600,
+        )
         await db.commit()
         await db.refresh(job)
 
@@ -528,6 +537,9 @@ class DurableQueueService:
             job.heartbeat_at = now
             if progress_percent is not None:
                 job.progress_percent = max(job.progress_percent, progress_percent)
+
+            # Renew associated storage quota reservation to prevent premature expiration
+            await UserQuotaService.renew_job_reservation(session, job.id, extend_seconds=1800)
 
             await session.commit()
 

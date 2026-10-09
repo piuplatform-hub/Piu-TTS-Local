@@ -23,14 +23,38 @@ class LoginProtectionService:
         username: str,
     ) -> Tuple[bool, int]:
         """
-        Checks whether the given IP or username is currently rate-limited.
+        Multi-dimensional rate limiting & bot defense (OWASP aligned):
+        1. Pair-level throttling: failed attempts for (ip_address, username) >= LOGIN_MAX_FAILED_ATTEMPTS_PAIR (5)
+        2. Account-level throttling: failed attempts for username across ALL IPs >= LOGIN_MAX_FAILED_ATTEMPTS_USER (10)
+        3. Source-level throttling: failed attempts for ip_address across ALL usernames >= LOGIN_MAX_FAILED_ATTEMPTS_IP (20)
+
         Returns: (is_limited: bool, retry_after_seconds: int)
         """
         now = datetime.now(timezone.utc)
         window_start = now - timedelta(minutes=settings.LOGIN_LOCKOUT_WINDOW_MINUTES)
         normalized_user = username.strip().lower()
 
-        # 1. Check failed attempts for this username within window
+        # Tier 1: Check specific (ip_address, username) pair
+        max_pair = getattr(settings, "LOGIN_MAX_FAILED_ATTEMPTS_PAIR", 5)
+        stmt_pair = (
+            select(func.count(LoginAttemptRecord.id), func.max(LoginAttemptRecord.attempted_at))
+            .where(
+                LoginAttemptRecord.ip_address == ip_address,
+                func.lower(LoginAttemptRecord.username) == normalized_user,
+                LoginAttemptRecord.attempted_at >= window_start,
+                LoginAttemptRecord.success == False,
+            )
+        )
+        res_pair = await db.execute(stmt_pair)
+        pair_count, pair_last_attempt = res_pair.first() or (0, None)
+        if pair_count >= max_pair and pair_last_attempt:
+            if pair_last_attempt.tzinfo is None:
+                pair_last_attempt = pair_last_attempt.replace(tzinfo=timezone.utc)
+            lockout_expiry = pair_last_attempt + timedelta(minutes=settings.LOGIN_LOCKOUT_WINDOW_MINUTES)
+            remaining_seconds = max(1, math.ceil((lockout_expiry - now).total_seconds()))
+            return True, remaining_seconds
+
+        # Tier 2: Check account across all IPs (distributed brute-force protection)
         stmt_user = (
             select(func.count(LoginAttemptRecord.id), func.max(LoginAttemptRecord.attempted_at))
             .where(
@@ -43,15 +67,13 @@ class LoginProtectionService:
         user_count, user_last_attempt = res_user.first() or (0, None)
 
         if user_count >= settings.LOGIN_MAX_FAILED_ATTEMPTS_USER and user_last_attempt:
-            # Calculate remaining seconds in lockout window
-            # Ensure timezone awareness
             if user_last_attempt.tzinfo is None:
                 user_last_attempt = user_last_attempt.replace(tzinfo=timezone.utc)
             lockout_expiry = user_last_attempt + timedelta(minutes=settings.LOGIN_LOCKOUT_WINDOW_MINUTES)
             remaining_seconds = max(1, math.ceil((lockout_expiry - now).total_seconds()))
             return True, remaining_seconds
 
-        # 2. Check failed attempts for this IP within window (spraying protection)
+        # Tier 3: Check source IP across all usernames (credential spraying / botnet protection)
         stmt_ip = (
             select(func.count(LoginAttemptRecord.id), func.max(LoginAttemptRecord.attempted_at))
             .where(

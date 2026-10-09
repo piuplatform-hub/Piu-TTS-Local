@@ -7,6 +7,7 @@ from pathlib import Path
 import tempfile
 import pytest
 from httpx import AsyncClient, ASGITransport
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 
 from apps.server.src.config import settings
@@ -41,6 +42,15 @@ async def test_env():
             f"sqlite+aiosqlite:///{db_path}",
             connect_args={"check_same_thread": False},
         )
+
+        @event.listens_for(test_engine.sync_engine, "connect")
+        def set_sqlite_pragma(dbapi_connection, connection_record):
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+            cursor.execute("PRAGMA busy_timeout=15000")
+            cursor.close()
+
         database.engine = test_engine
         database.AsyncSessionLocal = async_sessionmaker(
             bind=test_engine,

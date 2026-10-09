@@ -298,6 +298,9 @@ async def test_r1_long_form_bounded_batch_rendering(test_env, running_mock_engin
     - render_batch queues 25 segments and marks 5 as pending without triggering HTTP 429.
     - As jobs complete, reconcile_project_segments progressively pumps the remaining pending segments.
     """
+    await scheduler.stop()
+    await resource_manager.reset()
+
     async with database.AsyncSessionLocal() as session:
         user = User(id="user_author", username="author", password_hash="h", role="editor")
         session.add(user)

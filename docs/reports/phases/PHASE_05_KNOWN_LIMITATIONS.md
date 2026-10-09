@@ -33,34 +33,39 @@
    - Thuật ngữ kiến trúc chuẩn xác là **Head-of-Line Priority Precedence** (Ưu tiên đầu hàng đợi khi điều phối), không phải Preemptive Scheduling.
    - Một khi mô hình VieNeu-TTS hoặc Qwen3-TTS đã bắt đầu sinh âm thanh trong worker process, tác vụ đó không thể bị tạm dừng hay ngắt ngang để nhường chỗ cho một tác vụ ưu tiên cao hơn, vì điều này sẽ làm hỏng ngữ cảnh tensor và lãng phí toàn bộ chu kỳ tính toán đã thực hiện.
    - Tác vụ ưu tiên cao hơn sẽ được chọn thực thi ngay ở lượt giải phóng slot tiếp theo.
-
----
-
-## 3. GIỚI HẠN HÀNG ĐỢI VÀ HẠN NGẠCH LƯU TRỮ (QUEUE & STORAGE BOUNDARIES)
-
-1. **Ngưỡng Giới Hạn Tác Vụ Chờ Của Mỗi Người Dùng (Per-User Outstanding Jobs Limit):**
-   - Mỗi tài khoản người dùng chỉ được phép duy trì tối đa `MAX_OUTSTANDING_JOBS_PER_USER = 25` tác vụ đang hoạt động đồng thời (ở các trạng thái `QUEUED`, `PREPARING`, `RUNNING`).
-   - Đối với các kịch bản dài tập (ví dụ chương sách 50–100 phân đoạn), tính năng **Progressive Batch Submission** của `ProjectService` sẽ nộp tối đa 25 phân đoạn đầu tiên và giữ các phân đoạn còn lại ở trạng thái `"pending"`. Khi các tác vụ trước hoàn thành, các phân đoạn pending sẽ được tự động đưa vào hàng đợi. Người dùng không nên gửi nhiều batch dồn dập vượt quá khả năng xử lý của cơ sở dữ liệu.
-
-2. **Cơ Chế Đặt Trước Hạn Ngạch Lưu Trữ (Storage Quota Reservation Window):**
-   - Mỗi người dùng thông thường có hạn ngạch lưu trữ mặc định là 2048 MB (2 GB).
-   - Khi gửi tác vụ, hệ thống tạo bản ghi đặt trước (`storage_reservations`) với dung lượng ước tính. Bản ghi này có thời hạn tự động hết hạn là 30 phút để tránh rò rỉ hạn ngạch ảo nếu hệ thống gặp sự cố bất ngờ.
-   - Người dùng cần chủ động dọn dẹp các phiên bản âm thanh thô hoặc dự án cũ nếu tài khoản chạm ngưỡng 2 GB.
-
----
-
-## 4. GIỚI HẠN VỀ CƠ SỞ DỮ LIỆU VÀ QUẢN LÝ TIẾN TRÌNH (DATABASE & LIFECYCLE)
-
-1. **Quy Mô Phù Hợp của SQLite WAL:**
-   - Cơ sở dữ liệu SQLite ở chế độ Write-Ahead Logging (WAL) hoạt động cực kỳ ổn định, tốc độ cao cho môi trường máy trạm phòng thu nội bộ với quy mô dưới 10 người dùng đồng thời.
-   - Hệ thống không được thiết kế cho kiến trúc phân tán nhiều máy chủ (distributed multi-node clustering). Không được mở tệp `studio.db` qua các giao thức chia sẻ tệp mạng như SMB/NFS vì nguy cơ hỏng khóa tệp (file lock corruption).
-
-2. **Quy Trình Sao Lưu Bắt Buộc:**
-   - **Tuyệt đối không sử dụng lệnh sao chép tệp thô của hệ điều hành** (như `Copy-Item`, `cp`, `xcopy`) khi máy chủ Backend đang hoạt động.
-   - Mọi hoạt động sao lưu cơ sở dữ liệu phải được thực hiện thông qua **SQLite Online Backup API CLI**:
-     ```powershell
-     sqlite3.exe "D:\AIVoiceStudioData\studio.db" ".backup 'D:\AIVoiceStudioData\backups\studio_YYYYMMDD_HHMMSS.db'"
-     ```
+36: 
+37: 3. **Nguy Cơ Bỏ Đói Tác Vụ Giữa Các Cấp Độ Ưu Tiên Khác Nhau (Starvation Across Priority Tiers):**
+38:    - **Thực tế kỹ thuật:** Hệ thống bảo đảm công bằng chống bỏ đói tuyệt đối (Anti-starvation Fair-Share) **trong cùng một cấp độ ưu tiên** (Round-Robin giữa các người dùng). Tuy nhiên, **giữa các cấp độ ưu tiên khác nhau**, hệ thống áp dụng cơ chế *Head-of-Line Priority Precedence*.
+39:    - **Đánh đổi có chủ đích (Deliberate Trade-off):** Hệ thống **không áp dụng cơ chế Priority Aging** (tự động tăng độ ưu tiên của tác vụ cũ theo thời gian). Trong môi trường sản xuất âm thanh phòng thu chuyên nghiệp, việc một tác vụ ưu tiên cao (ví dụ Live Session preview hoặc VIP export) bị ngắt quãng bởi một tác vụ nền dài tập cũ là không thể chấp nhận được về mặt nghiệp vụ. Do đó, nếu có một luồng tác vụ ưu tiên cao nộp liên tục, tác vụ ưu tiên thấp buộc phải chờ đợi. Nguy cơ này được kiểm soát bởi hạn ngạch tài khoản `MAX_OUTSTANDING_JOBS_PER_USER = 25` và chính sách chỉ cấp quyền set high-priority cho tài khoản được chỉ định.
+40: 
+41: ---
+42: 
+43: ## 3. GIỚI HẠN HÀNG ĐỢI VÀ HẠN NGẠCH LƯU TRỮ (QUEUE & STORAGE BOUNDARIES)
+44: 
+45: 1. **Ngưỡng Giới Hạn Tác Vụ Chờ Của Mỗi Người Dùng (Per-User Outstanding Jobs Limit):**
+46:    - Mỗi tài khoản người dùng chỉ được phép duy trì tối đa `MAX_OUTSTANDING_JOBS_PER_USER = 25` tác vụ đang hoạt động đồng thời (ở các trạng thái `QUEUED`, `PREPARING`, `RUNNING`).
+47:    - Đối với các kịch bản dài tập (ví dụ chương sách 50–100 phân đoạn), tính năng **Progressive Batch Submission** của `ProjectService` sẽ nộp tối đa 25 phân đoạn đầu tiên và giữ các phân đoạn còn lại ở trạng thái `"pending"`. Khi các tác vụ trước hoàn thành, hệ thống nền tự động nạp lũy tiến vào hàng đợi mà không cần polling từ trình duyệt máy khách.
+48: 
+49: 2. **Cơ Chế Đặt Trước Hạn Ngạch Lưu Trữ (Storage Quota Reservation Window):**
+50:    - Mỗi người dùng thông thường có hạn ngạch lưu trữ mặc định là 2048 MB (2 GB).
+51:    - Khi gửi tác vụ, hệ thống tạo bản ghi đặt trước (`storage_reservations`) với dung lượng ước tính. Bản ghi này được gia hạn tự động qua worker heartbeat, và bị từ chối nếu worker trễ hạn (stale worker 409).
+52:    - Người dùng cần chủ động dọn dẹp các phiên bản âm thanh thô hoặc dự án cũ nếu tài khoản chạm ngưỡng 2 GB.
+53: 
+54: ---
+55: 
+56: ## 4. GIỚI HẠN VỀ CƠ SỞ DỮ LIỆU VÀ QUẢN LÝ TIẾN TRÌNH (DATABASE & LIFECYCLE)
+57: 
+58: 1. **Quy Mô Phù Hợp của SQLite WAL:**
+59:    - Cơ sở dữ liệu SQLite ở chế độ Write-Ahead Logging (WAL) hoạt động cực kỳ ổn định, tốc độ cao cho môi trường máy trạm phòng thu nội bộ với quy mô dưới 10 người dùng đồng thời.
+60:    - Hệ thống không được thiết kế cho kiến trúc phân tán nhiều máy chủ (distributed multi-node clustering). Không được mở tệp `studio.db` qua các giao thức chia sẻ tệp mạng như SMB/NFS vì nguy cơ hỏng khóa tệp (file lock corruption).
+61: 
+62: 2. **Quy Trình Sao Lưu Bắt Buộc:**
+63:    - **Tuyệt đối không sử dụng lệnh sao chép tệp thô của hệ điều hành** (như `Copy-Item`, `cp`, `xcopy`) khi máy chủ Backend đang hoạt động.
+64:    - Mọi hoạt động sao lưu cơ sở dữ liệu phải được thực hiện thông qua **Công cụ dòng lệnh chính thức của dự án**:
+65:      ```powershell
+66:      python -m apps.server.src.backup create
+67:      python -m apps.server.src.backup verify <path_to_backup_db>
+68:      ```
 
 3. **Vòng Đời Tiến Trình (Process Lifecycle):**
    - Hiện tại hệ thống chưa được tích hợp làm Windows Service (dự kiến trong Phase 5C).

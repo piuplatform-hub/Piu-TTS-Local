@@ -134,19 +134,25 @@ Toàn bộ hệ thống đã vượt qua 100% các bài kiểm thử hồi quy v
 - **Bộ kiểm thử di trú cơ sở dữ liệu (`tests/integration/test_migrations.py`)**:
   - **4/4 bài kiểm thử PASSED 100%**.
 
+- **Bộ kiểm thử Phase 5A Final Closure R2 (`tests/integration/test_phase5a_final_r2_*.py`)**:
+  - `test_phase5a_final_r2_security.py`: **7/7 PASSED** (Điều tiết đăng nhập 3 tầng: IP-User >= 5, Account >= 10, Source IP >= 20, chống IP spoofing, chống user enumeration).
+  - `test_phase5a_final_r2_quota_lifecycle.py`: **6/6 PASSED** (Heartbeat gia hạn TTL, cleanup bảo vệ active jobs, stale worker 409, atomic file unlink khi export lỗi).
+  - `test_phase5a_final_r2_priority_fairness.py`: **3/3 PASSED** (Công bằng Round-Robin cùng tier, Head-of-Line precedence khác tier, thực nghiệm starvation trade-off).
+  - `test_phase5a_final_r2_autonomous_batch.py`: **1/1 PASSED** (100-segment autonomous batch không cần browser polling, vượt qua API và Runner restarts, 100 audio artifacts độc bản).
+
 - **Toàn bộ bộ kiểm thử hồi quy (Full Regression Test Suite)**:
-  - **85 / 85 bài kiểm thử PASSED 100%** trong thời gian 4 phút 19 giây (259 giây).
+  - **102 / 102 bài kiểm thử PASSED 100%** trong thời gian 4 phút 35 giây (275 giây).
 
 - **Kiểm thử giao diện người dùng E2E trên Chrome (Playwright E2E Suite)**:
-  - **4 / 4 bài kiểm thử E2E PASSED 100%** trong 54.96 giây.
+  - **4 / 4 bài kiểm thử E2E PASSED 100%**.
 
 - **Đóng gói giao diện sản xuất (Frontend Production Build)**:
-  - `apps/web`: 1604 modules compiled sạch sẽ trong 13.77 giây, 0 lỗi TypeScript.
+  - `apps/web`: 1604 modules compiled sạch sẽ trong 20.35 giây, 0 lỗi TypeScript.
 
 ---
 
 ## 4. KẾT LUẬN & BƯỚC TIẾP THEO
 
-Milestone 5A đã hoàn thành xuất sắc toàn bộ các mục tiêu đặt ra: củng cố an ninh xác thực, bảo vệ hạn ngạch lưu trữ nguyên tử, điều phối hàng đợi công bằng chống starvation, và hỗ trợ kịch bản dài tập lũy tiến. Hệ thống đạt trạng thái chấp thuận hoàn toàn (Acceptance PASS) trên môi trường máy trạm cục bộ.
+Milestone 5A đã hoàn thành xuất sắc toàn bộ các mục tiêu đặt ra: củng cố an ninh xác thực đa tầng, bảo vệ hạn ngạch lưu trữ nguyên tử, điều phối hàng đợi công bằng chống starvation, hỗ trợ kịch bản dài tập lũy tiến tự trị và chuẩn hóa sao lưu SQLite CLI. Hệ thống đạt trạng thái chấp thuận hoàn toàn (Acceptance PASS) trên môi trường máy trạm cục bộ.
 
 **Ranh giới nghiêm ngặt:** Hệ thống hiện tại tiếp tục vận hành trên `127.0.0.1`. Giai đoạn 5B (LAN Deployment, Caddy Reverse Proxy, Self-signed TLS, Firewall) **KHÔNG ĐƯỢC PHÉP BẮT ĐẦU** cho đến khi có chỉ thị phê duyệt tiếp theo từ cấp thẩm quyền.

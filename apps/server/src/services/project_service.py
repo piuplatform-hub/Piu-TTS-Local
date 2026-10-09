@@ -4,6 +4,7 @@ Implements CRUD, optimistic concurrency control, character configuration,
 and script segment synchronization with partial invalidation.
 """
 
+import asyncio
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -42,6 +43,14 @@ def compute_segment_hash(text: str, engine_id: str, voice_id: str, parameters: D
 
 
 class ProjectService:
+    _admission_lock: Optional[asyncio.Lock] = None
+
+    @classmethod
+    def get_admission_lock(cls) -> asyncio.Lock:
+        if cls._admission_lock is None:
+            cls._admission_lock = asyncio.Lock()
+        return cls._admission_lock
+
     @staticmethod
     async def get_project_record(session: AsyncSession, project_id: str, user_id: str, is_admin: bool = False) -> ProjectRecord:
         stmt = (
@@ -527,6 +536,7 @@ class ProjectService:
                     voice_id=seg.voice_id,
                     parameters=seg.parameters,
                     priority=1,
+                    idempotency_key=f"seg-{seg.id}-{seg.text_hash[:32]}",
                 )
                 job = await JobService.submit_speech_job(session, job_req, current_user)
                 seg.last_job_id = job.id
@@ -672,15 +682,201 @@ class ProjectService:
                         voice_id=seg_to_queue.voice_id,
                         parameters=seg_to_queue.parameters,
                         priority=1,
+                        idempotency_key=f"seg-{seg_to_queue.id}-{seg_to_queue.text_hash[:32]}",
                     )
-                    job = await JobService.submit_speech_job(session, job_req, current_user)
-                    seg_to_queue.last_job_id = job.id
-                    seg_to_queue.status = "queued"
-                    seg_to_queue.updated_at = datetime.now(timezone.utc)
-                    changed = True
+                    try:
+                        job = await JobService.submit_speech_job(session, job_req, current_user)
+                        seg_to_queue.last_job_id = job.id
+                        seg_to_queue.status = "queued"
+                        seg_to_queue.updated_at = datetime.now(timezone.utc)
+                        changed = True
+                    except AppException as exc:
+                        if exc.code == "TOO_MANY_OUTSTANDING_JOBS":
+                            break
+                        raise
 
         if changed:
             project.updated_at = datetime.now(timezone.utc)
             await session.commit()
 
         return await cls.get_project_record(session, project_id, current_user.id, is_admin=is_admin)
+
+    @classmethod
+    async def reconcile_and_admit_pending_segments(cls) -> int:
+        """
+        Autonomous background reconciliation and progressive batch admission.
+        Runs inside the DurableJobScheduler daemon loop without requiring browser polling.
+
+        1. Finds in-flight segments whose associated JobRecord has finished (completed/failed)
+           and reconciles their status and active audio artifacts.
+        2. Finds projects with 'pending' segments, checks per-user outstanding limits,
+           and transactionally admits pending segments into the durable queue as slots open up.
+
+        Returns the number of pending segments newly admitted to the queue.
+        """
+        from apps.server.src.database import AsyncSessionLocal
+        admitted_count = 0
+
+        async with AsyncSessionLocal() as session:
+            # Step 1: Reconcile in-flight segments with finished/updated jobs
+            stmt_inflight = (
+                select(ScriptSegmentRecord)
+                .where(
+                    ScriptSegmentRecord.status.in_(["rendering", "queued"]),
+                    ScriptSegmentRecord.last_job_id.is_not(None),
+                )
+                .options(selectinload(ScriptSegmentRecord.revisions))
+            )
+            res_inflight = await session.execute(stmt_inflight)
+            inflight_segs = res_inflight.scalars().all()
+
+            for seg in inflight_segs:
+                stmt_j = select(JobRecord).where(JobRecord.id == seg.last_job_id)
+                res_j = await session.execute(stmt_j)
+                job = res_j.scalar_one_or_none()
+                if not job:
+                    continue
+
+                payload = getattr(job, "payload_data", None) or getattr(job, "request_payload", None) or {}
+                job_text = payload.get("text", "")
+                job_voice = payload.get("voice_id", "")
+                job_params = payload.get("parameters", {})
+                job_hash = compute_segment_hash(job_text, job.engine_id, job_voice, job_params)
+                is_matching_job = (job_hash == seg.text_hash)
+
+                if job.status == "completed" and job.artifact_id:
+                    if is_matching_job:
+                        if seg.active_artifact_id != job.artifact_id:
+                            if seg.active_artifact_id:
+                                next_rev = len(seg.revisions) + 1
+                                dur = 0.0
+                                old_art = await session.get(ArtifactRecord, seg.active_artifact_id)
+                                if old_art and old_art.duration_seconds:
+                                    dur = float(old_art.duration_seconds)
+                                rev = SegmentRevisionRecord(
+                                    segment_id=seg.id,
+                                    revision_number=next_rev,
+                                    text=seg.text,
+                                    engine_id=seg.engine_id,
+                                    voice_id=seg.voice_id,
+                                    parameters=seg.parameters,
+                                    artifact_id=seg.active_artifact_id,
+                                    job_id=seg.last_job_id,
+                                    duration_seconds=dur,
+                                )
+                                session.add(rev)
+
+                            seg.active_artifact_id = job.artifact_id
+                            seg.status = "completed"
+                            seg.updated_at = datetime.now(timezone.utc)
+                        elif seg.status != "completed":
+                            seg.status = "completed"
+                            seg.updated_at = datetime.now(timezone.utc)
+                    else:
+                        rev_exists = any(r.artifact_id == job.artifact_id for r in seg.revisions)
+                        if not rev_exists:
+                            next_rev = len(seg.revisions) + 1
+                            dur = 0.0
+                            art = await session.get(ArtifactRecord, job.artifact_id)
+                            if art and art.duration_seconds:
+                                dur = float(art.duration_seconds)
+                            rev = SegmentRevisionRecord(
+                                segment_id=seg.id,
+                                revision_number=next_rev,
+                                text=job_text,
+                                engine_id=job.engine_id,
+                                voice_id=job_voice,
+                                parameters=job_params,
+                                artifact_id=job.artifact_id,
+                                job_id=job.id,
+                                duration_seconds=dur,
+                            )
+                            session.add(rev)
+                        if seg.status in ("rendering", "queued"):
+                            seg.status = "stale" if seg.active_artifact_id else "draft"
+                            seg.updated_at = datetime.now(timezone.utc)
+                elif job.status == "failed":
+                    if is_matching_job and seg.status != "failed":
+                        seg.status = "failed"
+                        seg.updated_at = datetime.now(timezone.utc)
+                elif job.status == "running":
+                    if is_matching_job and seg.status != "rendering":
+                        seg.status = "rendering"
+                        seg.updated_at = datetime.now(timezone.utc)
+
+            await session.commit()
+
+            # Step 2: Autonomous Progressive Admission of 'pending' segments
+            stmt_pending = (
+                select(ScriptSegmentRecord)
+                .where(ScriptSegmentRecord.status == "pending")
+                .order_by(ScriptSegmentRecord.sequence_order.asc())
+            )
+            res_pending = await session.execute(stmt_pending)
+            pending_segs = res_pending.scalars().all()
+
+            if not pending_segs:
+                return 0
+
+            # Group pending segments by user_id
+            projects_cache: Dict[str, Optional[ProjectRecord]] = {}
+            user_cache: Dict[str, Optional[User]] = {}
+            user_pending: Dict[str, List[ScriptSegmentRecord]] = {}
+
+            for s in pending_segs:
+                if s.project_id not in projects_cache:
+                    p = await session.get(ProjectRecord, s.project_id)
+                    projects_cache[s.project_id] = p
+                proj = projects_cache[s.project_id]
+                if not proj:
+                    continue
+                uid = proj.user_id
+                if uid not in user_pending:
+                    user_pending[uid] = []
+                user_pending[uid].append(s)
+
+            for uid, segs_for_user in user_pending.items():
+                if uid not in user_cache:
+                    u = await session.get(User, uid)
+                    user_cache[uid] = u
+                usr = user_cache[uid]
+                if not usr:
+                    continue
+
+                # Query current active jobs for this user
+                active_stmt = select(func.count(JobRecord.id)).where(
+                    JobRecord.user_id == uid,
+                    JobRecord.status.in_([JobState.QUEUED.value, JobState.PREPARING.value, JobState.RUNNING.value]),
+                )
+                active_res = await session.execute(active_stmt)
+                curr_active = active_res.scalar() or 0
+                free_slots = max(0, settings.MAX_OUTSTANDING_JOBS_PER_USER - curr_active)
+
+                if free_slots <= 0:
+                    continue
+
+                for seg_to_queue in segs_for_user[:free_slots]:
+                    job_req = TTSJobSubmitRequest(
+                        engine_id=seg_to_queue.engine_id,
+                        text=seg_to_queue.text,
+                        language=seg_to_queue.language,
+                        voice_id=seg_to_queue.voice_id,
+                        parameters=seg_to_queue.parameters,
+                        priority=1,
+                        idempotency_key=f"seg-{seg_to_queue.id}-{seg_to_queue.text_hash[:32]}",
+                    )
+                    try:
+                        job = await JobService.submit_speech_job(session, job_req, usr)
+                        seg_to_queue.last_job_id = job.id
+                        seg_to_queue.status = "queued"
+                        seg_to_queue.updated_at = datetime.now(timezone.utc)
+                        admitted_count += 1
+                    except AppException as exc:
+                        if exc.code == "TOO_MANY_OUTSTANDING_JOBS":
+                            break
+                        raise
+
+            if admitted_count > 0:
+                await session.commit()
+
+        return admitted_count

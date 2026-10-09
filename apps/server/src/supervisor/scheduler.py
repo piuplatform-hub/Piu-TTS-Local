@@ -86,7 +86,16 @@ class DurableJobScheduler:
                 # 1. Reclaim any expired leases
                 await DurableQueueService.reclaim_expired_leases()
 
-                # 2. Attempt to claim next ready job
+                # 2. Autonomous progressive batch admission & segment reconciliation
+                try:
+                    from ..services.project_service import ProjectService
+                    admitted = await ProjectService.reconcile_and_admit_pending_segments()
+                    if admitted > 0:
+                        logger.info(f"DurableJobScheduler: Autonomously admitted {admitted} progressive batch segments.")
+                except Exception as rec_err:
+                    logger.debug(f"Progressive batch reconciliation tick error: {rec_err}")
+
+                # 3. Attempt to claim next ready job
                 claimed_job = await DurableQueueService.claim_next_job(
                     worker_id=self.worker_id,
                     lease_duration_seconds=self.lease_seconds,
@@ -231,6 +240,8 @@ class DurableJobScheduler:
                 await hb_task
             except asyncio.CancelledError:
                 pass
+            # Immediately wake scheduler loop to admit pending segments and claim next available job
+            self.wake()
 
 
 # Global singleton instance
