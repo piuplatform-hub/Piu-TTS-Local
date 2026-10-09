@@ -64,7 +64,14 @@ def test_real_browser_end_to_end_journey():
                 return s.getsockname()[1]
 
         port = get_free_port()
-        config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
+        config = uvicorn.Config(
+            app,
+            host="127.0.0.1",
+            port=port,
+            log_level="warning",
+            proxy_headers=settings.UVICORN_PROXY_HEADERS,
+            forwarded_allow_ips=settings.UVICORN_FORWARDED_ALLOW_IPS,
+        )
         server = uvicorn.Server(config)
         server_thread = threading.Thread(target=server.run, daemon=True)
         server_thread.start()

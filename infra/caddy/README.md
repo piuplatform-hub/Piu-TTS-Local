@@ -69,7 +69,11 @@ caddy validate --config infra/caddy/Caddyfile
 
 ### Bước 2: Khởi chạy FastAPI Backend (Terminal 1)
 ```powershell
-.venv\Scripts\python.exe -m uvicorn apps.server.src.main:app --host 127.0.0.1 --port 8765
+# Khởi chạy qua module chuẩn hóa (Tự động áp dụng UVICORN_PROXY_HEADERS=False):
+.venv\Scripts\python.exe -m apps.server.src.main
+
+# Hoặc nếu chạy trực tiếp qua Uvicorn CLI, bắt buộc truyền cờ vô hiệu hóa ProxyHeaders:
+.venv\Scripts\python.exe -m uvicorn apps.server.src.main:app --host 127.0.0.1 --port 8765 --no-proxy-headers --forwarded-allow-ips ""
 ```
 
 ### Bước 3: Khởi chạy Caddy Reverse Proxy (Terminal 2)
