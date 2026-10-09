@@ -54,6 +54,8 @@ class Settings(BaseSettings):
     # Phase 5B-1: Reverse Proxy & Trusted Client Identity
     TRUST_FORWARDED_HEADERS: bool = True
     TRUSTED_PROXIES: list[str] = ["127.0.0.1", "::1"]
+    UVICORN_PROXY_HEADERS: bool = False  # Explicitly disabled so Uvicorn does not mutate scope['client']
+    UVICORN_FORWARDED_ALLOW_IPS: str = ""  # Disable Uvicorn default IP forwarding in favor of custom resolver
     CORS_ORIGINS: list[str] = [
         "http://127.0.0.1:8765",
         "http://localhost:8765",

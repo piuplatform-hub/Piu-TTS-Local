@@ -35,8 +35,8 @@ class RunnerProcessLock:
     Exclusive OS-level file lock ensuring only a single Standalone Runner
     instance executes at any given time.
     """
-    def __init__(self, lock_path: Path):
-        self.lock_path = lock_path
+    def __init__(self, lock_path: Path | str):
+        self.lock_path = Path(lock_path)
         self._file = None
 
     def acquire(self) -> bool:

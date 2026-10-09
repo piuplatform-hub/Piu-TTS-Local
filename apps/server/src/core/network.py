@@ -126,3 +126,30 @@ def extract_client_ip(request: Request) -> str:
 
     # Fallback to direct peer IP
     return peer_ip
+
+
+class UnifiedProxySchemeMiddleware:
+    """
+    ASGI middleware ensuring that:
+    1. Socket peer (scope['client']) is NEVER mutated, preserving the authentic raw TCP peer.
+    2. When the socket peer is listed in settings.TRUSTED_PROXIES and TRUST_FORWARDED_HEADERS is True,
+       X-Forwarded-Proto is safely inspected to update scope['scheme'] to 'https' (or 'http').
+    """
+
+    def __init__(self, app, trusted_proxies: Optional[Set[str]] = None):
+        self.app = app
+        self.trusted_proxies = trusted_proxies if trusted_proxies is not None else set(settings.TRUSTED_PROXIES)
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            client_addr = scope.get("client")
+            peer_ip = client_addr[0] if client_addr else None
+            # Only trust forwarded scheme from authorized reverse proxy peer
+            if peer_ip in self.trusted_proxies and settings.TRUST_FORWARDED_HEADERS:
+                for name, value in scope.get("headers", []):
+                    if name.lower() == b"x-forwarded-proto":
+                        proto = value.decode("latin1").strip().lower()
+                        if proto in ("http", "https"):
+                            scope["scheme"] = proto
+                        break
+        await self.app(scope, receive, send)

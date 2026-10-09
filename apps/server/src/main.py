@@ -21,6 +21,7 @@ from .core.errors import (
     validation_exception_handler,
 )
 from .core.security import get_or_create_bootstrap_token
+from .core.network import UnifiedProxySchemeMiddleware
 from .services.auth_service import AuthService
 from .services.engine_service import EngineService
 from .supervisor.supervisor import supervisor
@@ -84,6 +85,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Unified Proxy Scheme Middleware (Safely extracts X-Forwarded-Proto for HTTPS without mutating socket peer)
+app.add_middleware(
+    UnifiedProxySchemeMiddleware,
+    trusted_proxies=set(settings.TRUSTED_PROXIES),
+)
+
 # API v1 Router
 app.include_router(api_v1_router)
 
@@ -106,4 +113,6 @@ if __name__ == "__main__":
         host=settings.HOST,
         port=settings.PORT,
         reload=False,
+        proxy_headers=settings.UVICORN_PROXY_HEADERS,
+        forwarded_allow_ips=settings.UVICORN_FORWARDED_ALLOW_IPS,
     )

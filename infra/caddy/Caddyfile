@@ -6,6 +6,7 @@
 }
 
 https://127.0.0.1:9443 {
+    bind 127.0.0.1
     tls internal
 
     # Edge Security Headers (OWASP Aligned)

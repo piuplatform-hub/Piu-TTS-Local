@@ -6,14 +6,19 @@ Trusted Reverse Proxy Client Identity, Rate Limiting Isolation & Gateway Hardeni
 import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
+import socket
+import subprocess
+import sys
 import tempfile
+import time
 import pytest
+import uvicorn
 from httpx import AsyncClient, ASGITransport
 from starlette.requests import Request
 
 from apps.server.src.config import settings
 from apps.server.src import database
-from apps.server.src.core.network import normalize_ip, extract_client_ip
+from apps.server.src.core.network import normalize_ip, extract_client_ip, UnifiedProxySchemeMiddleware
 from apps.server.src.core.security import hash_password, create_access_token
 from apps.server.src.models.user import User
 from apps.server.src.services.login_protection_service import LoginProtectionService
@@ -244,3 +249,256 @@ class TestSecurityBaselinePreservation:
         assert resp_art.status_code == 400
         data_art = resp_art.json()
         assert data_art.get("code") == "QUERY_AUTH_PROHIBITED"
+
+
+class TestCaddyConfigurationInspection:
+    """Verifies that infra/caddy/Caddyfile strictly fulfills Phase 5B-1 security & binding constraints."""
+
+    def test_caddyfile_listener_binding_and_security(self):
+        caddyfile_path = Path(__file__).resolve().parents[2] / "infra" / "caddy" / "Caddyfile"
+        assert caddyfile_path.exists(), "Caddyfile must exist at infra/caddy/Caddyfile"
+
+        content = caddyfile_path.read_text(encoding="utf-8")
+
+        # 1. Listener binding check: site block must be https://127.0.0.1:9443 and include bind 127.0.0.1
+        assert "https://127.0.0.1:9443" in content, "Caddyfile must specify https://127.0.0.1:9443 site address"
+        assert "bind 127.0.0.1" in content, "Caddyfile must explicitly configure 'bind 127.0.0.1' inside site block"
+
+        # 2. Global security: admin API disabled
+        assert "admin off" in content, "Caddy admin API must be explicitly disabled (admin off)"
+
+        # 3. Internal TLS
+        assert "tls internal" in content, "Caddyfile must configure 'tls internal' for local certificate authority"
+
+        # 4. Reverse proxy upstream & unbuffered SSE
+        assert "127.0.0.1:8765" in content, "Caddyfile must proxy to local FastAPI upstream on 127.0.0.1:8765"
+        assert "flush_interval -1" in content, "Caddyfile must set flush_interval -1 for real-time SSE streaming"
+
+        # 5. Security headers
+        assert 'X-Frame-Options "DENY"' in content, "Caddyfile must set X-Frame-Options DENY"
+        assert 'X-Content-Type-Options "nosniff"' in content, "Caddyfile must set X-Content-Type-Options nosniff"
+        assert "Strict-Transport-Security" in content, "Caddyfile must configure HSTS"
+
+
+class TestUvicornProxyHeadersAndRealTcp:
+    """
+    Verifies that Uvicorn startup configuration disables proxy_headers,
+    preventing Uvicorn from mutating scope['client'] before custom resolution runs.
+    Verifies real TCP requests with forged X-Forwarded-For cannot bypass rate limiting.
+    """
+
+    def test_uvicorn_proxy_headers_configuration_flags(self):
+        """Verifies settings ensure Uvicorn does not mutate scope['client']."""
+        assert settings.UVICORN_PROXY_HEADERS is False, "UVICORN_PROXY_HEADERS must be False"
+        assert settings.UVICORN_FORWARDED_ALLOW_IPS == "", "UVICORN_FORWARDED_ALLOW_IPS must be empty"
+
+    @pytest.mark.asyncio
+    async def test_real_tcp_uvicorn_forged_forwarded_headers_rejected_when_untrusted(self, test_env):
+        """
+        Spins up real Uvicorn server on loopback.
+        Sends real TCP requests with forged X-Forwarded-For from an untrusted peer context.
+        Verifies all failed attempts accrue against the authentic socket peer (127.0.0.1),
+        triggering rate limit lockout on the 6th attempt even with varying spoofed headers.
+        """
+        async with database.AsyncSessionLocal() as session:
+            test_user = User(
+                id="user_tcp_victim",
+                username="tcp_victim",
+                password_hash=hash_password("VictimPass123!"),
+                role="editor",
+            )
+            session.add(test_user)
+            await session.commit()
+
+        # Find free port
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
+
+        from apps.server.src.main import app
+
+        config = uvicorn.Config(
+            app,
+            host="127.0.0.1",
+            port=port,
+            log_level="error",
+            proxy_headers=settings.UVICORN_PROXY_HEADERS,
+            forwarded_allow_ips=settings.UVICORN_FORWARDED_ALLOW_IPS,
+        )
+        server = uvicorn.Server(config)
+        server_task = asyncio.create_task(server.serve())
+
+        for _ in range(50):
+            if server.started:
+                break
+            await asyncio.sleep(0.05)
+
+        # Temporarily simulate untrusted peer scenario (no proxies trusted)
+        orig_trusted = settings.TRUSTED_PROXIES
+        try:
+            settings.TRUSTED_PROXIES = []
+
+            async with AsyncClient(base_url=f"http://127.0.0.1:{port}") as http_client:
+                # 5 failed login attempts with forged, rotating X-Forwarded-For headers
+                for i in range(5):
+                    resp = await http_client.post(
+                        "/api/v1/auth/login",
+                        json={"username": "tcp_victim", "password": "WrongPassword!"},
+                        headers={"X-Forwarded-For": f"203.0.113.{i+1}"},
+                    )
+                    assert resp.status_code == 401
+
+                # 6th attempt with a completely new forged X-Forwarded-For
+                resp6 = await http_client.post(
+                    "/api/v1/auth/login",
+                    json={"username": "tcp_victim", "password": "WrongPassword!"},
+                    headers={"X-Forwarded-For": "198.51.100.99"},
+                )
+                assert resp6.status_code == 429
+                assert resp6.json().get("code") == "TOO_MANY_LOGIN_ATTEMPTS"
+        finally:
+            settings.TRUSTED_PROXIES = orig_trusted
+            server.should_exit = True
+            await server_task
+
+    async def test_real_tcp_scheme_middleware_updates_scheme_without_mutating_socket_peer(self):
+        """
+        Verifies that UnifiedProxySchemeMiddleware updates request scheme to 'https'
+        when called by a trusted proxy with X-Forwarded-Proto, while preserving the raw socket peer.
+        """
+        from fastapi import FastAPI
+        from apps.server.src.core.network import UnifiedProxySchemeMiddleware
+
+        test_app = FastAPI()
+        test_app.add_middleware(UnifiedProxySchemeMiddleware, trusted_proxies={"127.0.0.1"})
+
+        @test_app.get("/scheme-check")
+        async def scheme_check(req: Request):
+            return {
+                "scheme": req.url.scheme,
+                "client_host": req.client.host if req.client else None,
+                "scope_client": req.scope.get("client"),
+            }
+
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
+
+        config = uvicorn.Config(
+            test_app,
+            host="127.0.0.1",
+            port=port,
+            log_level="error",
+            proxy_headers=False,
+            forwarded_allow_ips="",
+        )
+        server = uvicorn.Server(config)
+        server_task = asyncio.create_task(server.serve())
+
+        for _ in range(50):
+            if server.started:
+                break
+            await asyncio.sleep(0.05)
+
+        try:
+            async with AsyncClient(base_url=f"http://127.0.0.1:{port}") as http_client:
+                # 1. Direct trusted call with X-Forwarded-Proto: https and forged X-Forwarded-For
+                resp = await http_client.get(
+                    "/scheme-check",
+                    headers={
+                        "X-Forwarded-Proto": "https",
+                        "X-Forwarded-For": "203.0.113.10",
+                    },
+                )
+                assert resp.status_code == 200
+                data = resp.json()
+                assert data["scheme"] == "https", "Scheme must be updated to https"
+                assert data["client_host"] == "127.0.0.1", "Socket peer host must NOT be mutated"
+                assert data["scope_client"][0] == "127.0.0.1", "scope['client'] must retain raw TCP socket peer"
+        finally:
+            server.should_exit = True
+            await server_task
+
+
+class TestRunnerProcessLockWindowsSubprocesses:
+    """
+    Verifies standalone runner single-instance mutual exclusion using two independent
+    Windows OS subprocesses via RunnerProcessLock.
+    Proves:
+    1. Process 2 is blocked (LOCK_BUSY) while Process 1 holds the lock.
+    2. Process 3 successfully re-acquires the lock after Process 1 is killed.
+    """
+
+    def test_windows_subprocess_concurrency_and_recovery(self, tmp_path):
+        lock_file = tmp_path / ".runner.lock"
+        script_file = tmp_path / "lock_worker.py"
+        repo_root = Path(__file__).resolve().parents[2]
+
+        script_file.write_text(
+            f'''
+import sys, time
+from pathlib import Path
+from apps.server.src.runner import RunnerProcessLock
+
+lock = RunnerProcessLock(Path(r"{lock_file}"))
+if not lock.acquire():
+    print("LOCK_BUSY", flush=True)
+    sys.exit(1)
+
+print("ACQUIRED", flush=True)
+try:
+    while True:
+        time.sleep(0.1)
+except KeyboardInterrupt:
+    pass
+''',
+            encoding="utf-8",
+        )
+
+        import os
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(repo_root)
+
+        # 1. Start Process 1 — acquires lock and keeps running
+        p1 = subprocess.Popen(
+            [sys.executable, str(script_file)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            cwd=str(repo_root),
+            env=env,
+        )
+        line1 = p1.stdout.readline().strip()
+        assert line1 == "ACQUIRED", f"Process 1 must acquire lock, got: {line1}"
+
+        # 2. Start Process 2 — must fail to acquire and report LOCK_BUSY
+        p2 = subprocess.Popen(
+            [sys.executable, str(script_file)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            cwd=str(repo_root),
+            env=env,
+        )
+        stdout2, _ = p2.communicate(timeout=5)
+        assert p2.returncode == 1, f"Process 2 must exit with code 1, got: {p2.returncode}"
+        assert "LOCK_BUSY" in stdout2, f"Process 2 must output LOCK_BUSY, got: {stdout2}"
+
+        # 3. Terminate Process 1
+        p1.kill()
+        p1.wait(timeout=5)
+
+        # 4. Start Process 3 — must succeed now that Process 1 has terminated
+        p3 = subprocess.Popen(
+            [sys.executable, str(script_file)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            cwd=str(repo_root),
+            env=env,
+        )
+        line3 = p3.stdout.readline().strip()
+        assert line3 == "ACQUIRED", f"Process 3 must acquire lock after p1 killed, got: {line3}"
+        p3.kill()
+        p3.wait(timeout=5)
+
