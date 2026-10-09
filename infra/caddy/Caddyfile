@@ -3,6 +3,7 @@
     # Bound strictly to 127.0.0.1; LAN exposure (0.0.0.0) is PROHIBITED in Milestone 5B-1
     admin off
     auto_https disable_redirects
+    skip_install_trust
 }
 
 https://127.0.0.1:9443 {

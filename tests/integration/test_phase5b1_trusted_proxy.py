@@ -279,6 +279,9 @@ class TestCaddyConfigurationInspection:
         assert 'X-Content-Type-Options "nosniff"' in content, "Caddyfile must set X-Content-Type-Options nosniff"
         assert "Strict-Transport-Security" in content, "Caddyfile must configure HSTS"
 
+        # 6. Trust store safety
+        assert "skip_install_trust" in content, "Caddyfile must configure skip_install_trust to prevent modifying OS trust store"
+
 
 class TestUvicornProxyHeadersAndRealTcp:
     """
@@ -501,4 +504,80 @@ except KeyboardInterrupt:
         assert line3 == "ACQUIRED", f"Process 3 must acquire lock after p1 killed, got: {line3}"
         p3.kill()
         p3.wait(timeout=5)
+
+
+class TestLiveCaddyHttpsGateway:
+    """Validates the live portable Caddy HTTPS gateway process on 127.0.0.1:9443."""
+
+    def test_live_caddy_socket_binding_and_tls_handshake(self):
+        caddy_exe = Path("infra/caddy/caddy.exe").resolve()
+        caddyfile = Path("infra/caddy/Caddyfile").resolve()
+        import os
+        root_crt = Path(os.environ.get("APPDATA", "")) / "Caddy" / "pki" / "authorities" / "local" / "root.crt"
+
+        assert caddy_exe.exists(), "caddy.exe must be present at infra/caddy/caddy.exe"
+        assert caddyfile.exists(), "Caddyfile must be present at infra/caddy/Caddyfile"
+        assert root_crt.exists(), f"root.crt must be present at {root_crt}"
+
+        # 1. Start Caddy process
+        p_caddy = subprocess.Popen(
+            [str(caddy_exe), "run", "--config", str(caddyfile)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+        try:
+            # 2. Poll for listener socket readiness
+            import httpx
+            ready = False
+            for _ in range(30):
+                try:
+                    with httpx.Client(verify=str(root_crt), timeout=0.5) as client:
+                        # Request will return 502 Bad Gateway if FastAPI upstream isn't up, but TLS handshake succeeds!
+                        client.get("https://127.0.0.1:9443/api/v1/health")
+                        ready = True
+                        break
+                except httpx.HTTPStatusError:
+                    ready = True
+                    break
+                except httpx.ConnectError:
+                    time.sleep(0.1)
+                except Exception:
+                    # Any response means TLS connection succeeded
+                    ready = True
+                    break
+
+            assert ready, "Caddy TLS gateway failed to respond within 3 seconds"
+
+            # 3. Assert socket listener is bound exclusively to 127.0.0.1
+            ps_cmd = '@(Get-NetTCPConnection -LocalPort 9443 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty LocalAddress) -join ","'
+            res = subprocess.run(["powershell", "-Command", ps_cmd], capture_output=True, text=True)
+            bound_ips = [ip.strip() for ip in res.stdout.strip().split(",") if ip.strip()]
+            assert bound_ips == ["127.0.0.1"], f"Port 9443 listener must bind exclusively to 127.0.0.1, got: {bound_ips}"
+
+            # 4. Strict TLS verification: without root_crt, verification MUST fail
+            with pytest.raises(Exception):
+                with httpx.Client(verify=True, timeout=2.0) as unverified_client:
+                    unverified_client.get("https://127.0.0.1:9443/")
+
+            # 5. Root CA must NOT be in Windows Certificate Store
+            chk_cmd = r'Get-ChildItem Cert:\CurrentUser\Root | Where-Object { $_.Subject -like "*Caddy*" }'
+            chk_res = subprocess.run(["powershell", "-Command", chk_cmd], capture_output=True, text=True)
+            assert chk_res.stdout.strip() == "", "Caddy Root CA MUST NOT be installed in Windows Certificate Store"
+
+        finally:
+            p_caddy.kill()
+            p_caddy.wait(timeout=5)
+
+            # 6. Verify port listener is released
+            released = False
+            for _ in range(15):
+                ps_rel = '@(Get-NetTCPConnection -LocalPort 9443 -State Listen -ErrorAction SilentlyContinue).Count -eq 0'
+                rel_res = subprocess.run(["powershell", "-Command", ps_rel], capture_output=True, text=True)
+                if "True" in rel_res.stdout:
+                    released = True
+                    break
+                time.sleep(0.2)
+            assert released, "Port 9443 listener must be cleanly released upon Caddy termination"
+
 

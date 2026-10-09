@@ -57,3 +57,16 @@ data/
 
 # Handoff packages
 ai-voice-studio-docs-r1.1/
+
+# Caddy binary, local PKI & runtime data
+caddy.exe
+infra/caddy/caddy.exe
+infra/caddy/LICENSE
+infra/caddy/data/
+infra/caddy/config/
+infra/caddy/pki/
+.caddy/
+*.crt
+*.key
+*.pem
+

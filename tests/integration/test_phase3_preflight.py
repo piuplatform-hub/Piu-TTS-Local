@@ -199,6 +199,7 @@ async def test_preflight_05_gpu_slot_atomicity_and_stale_worker_reconciliation(t
         req1 = TTSJobSubmitRequest(text="GPU Task 1", engine_id="mock-tts", language="vi")
         j1 = await DurableQueueService.submit_speech_job(session, req1, user)
         j1.resource_type = "gpu"
+        j1.queued_at = datetime.now(timezone.utc) - timedelta(seconds=1)
 
         req2 = TTSJobSubmitRequest(text="GPU Task 2", engine_id="mock-tts", language="vi")
         j2 = await DurableQueueService.submit_speech_job(session, req2, user)
