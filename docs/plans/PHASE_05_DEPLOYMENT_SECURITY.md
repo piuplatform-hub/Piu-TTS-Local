@@ -116,15 +116,23 @@ Tuy nhiên, trong môi trường sản xuất nội dung thực tế (phòng thu
    - Áp dụng chính sách không phá hủy: Không xóa dữ liệu người dùng cũ nếu tổng dung lượng của họ trước đó đã vượt hạn mức mới.
 
 ### Milestone 5B: Tích Hợp Local Reverse Proxy & HTTPS/TLS Đầu Mạng LAN
-1. **Lựa chọn Reverse Proxy**: Sử dụng **Caddy Server** (khuyến nghị số 1 cho Windows vì là single binary nhẹ, hiệu năng cao, tích hợp sẵn Local HTTPS CA tự động cấp chứng chỉ).
-   - *Lưu ý kỹ thuật*: Tính năng Rate Limiting ở tầng Caddy có thể yêu cầu module/plugin ngoài (`caddy-ratelimit`) hoặc phải được kiểm soát chủ động ở tầng ứng dụng (Application-level Rate Limiting). Do đó, Milestone 5A tập trung xây dựng cơ chế bảo vệ đăng nhập và giới hạn tần suất trực tiếp trong FastAPI.
+1. **Phân kỳ thực thi Milestone 5B**:
+   - **Milestone 5B-1: Loopback-Only Gateway Staging (ĐÃ HOÀN THÀNH — Commit `2edf5f1`)**:
+     - Cấu hình Caddy Reverse Proxy tại `infra/caddy/Caddyfile` lắng nghe staging trên `https://127.0.0.1:9443` với `tls internal` (ECDSA P-256).
+     - Triển khai **Trusted Client IP Resolver** (`apps/server/src/core/network.py`) tuân thủ RFC 7239 / OWASP, chống IP spoofing và cô lập hoàn toàn rate limit cho từng client.
+     - Khóa tiến trình Standalone Runner đơn lẻ (`RunnerProcessLock` trong `apps/server/src/runner.py`).
+     - Hoàn thành bộ kiểm thử tích hợp 12/12 ca kiểm thử PASS (`tests/integration/test_phase5b1_trusted_proxy.py`).
+     - Trạng thái runtime thực tế của tiến trình Caddy: **CONDITIONAL** (chờ cài đặt binary `caddy.exe`).
+   - **Milestone 5B-2: Phơi bày mạng LAN phòng thu (CHƯA THỰC THI — Kế hoạch tại `docs/operations/PHASE_05B_LAN_ROLLOUT_AND_ROLLBACK.md`)**:
+     - Chuyển đổi binding sang IP mạng LAN (ví dụ `https://192.168.1.15:9443`).
+     - Mở cổng tường lửa Windows giới hạn trong Profile Private.
+     - Phân phối Root CA Caddy (`root.crt`) tới các máy khách của biên tập viên qua `certutil`.
+     - Chỉ được phép kích hoạt khi có văn bản ủy quyền riêng biệt từ Product Owner.
 2. **Cấu hình Caddyfile Chuẩn Phòng Thu**:
-   - Tự động sinh chứng chỉ nội bộ cho hostname LAN (ví dụ: `studio.local` hoặc IP `192.168.1.x`).
-   - Phục vụ trực tiếp tệp tĩnh `apps/web/dist` với HTTP/2 và gzip/zstd nén nhanh.
+   - Tự động sinh chứng chỉ nội bộ cho loopback staging (5B-1) và hostname LAN (5B-2).
+   - Truyền phát SSE thời gian thực không bộ đệm (`flush_interval -1`).
    - Chuyển tiếp `/api/*` về `http://127.0.0.1:8765`.
-   - Bật HSTS, CSP, X-Frame-Options và CORS header chặt chẽ.
-3. **Phân phối tin cậy chứng chỉ (Internal CA Trust Distribution)**:
-   - Chứng chỉ Caddy Internal CA yêu cầu phải được phân phối và cài đặt tin cậy vào Windows/macOS Certificate Store trên từng máy khách nội bộ (`scripts/install_lan_cert.ps1`) để loại bỏ cảnh báo chứng chỉ không xác thực của trình duyệt.
+   - Bật HSTS, X-Content-Type-Options: nosniff, X-Frame-Options: DENY và CORS header chặt chẽ.
 
 ### Milestone 5C: Quản Lý Vòng Đời Tiến Trình Windows & Tự Động Khởi Động (Windows Service / Autostart)
 1. **Kiến trúc dịch vụ trên Windows**:
