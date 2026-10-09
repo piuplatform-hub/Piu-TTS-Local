@@ -1,5 +1,35 @@
 # Documentation changelog
 
+## 2026-10-09 — Phase 5B-1: Reverse Proxy Staging, Trusted Client Identity & Gateway Hardening (Acceptance PASS / Conditional Runtime)
+
+- **Dàn dựng Cổng Reverse Proxy Loopback (Loopback Gateway Staging trên `127.0.0.1:9443`):**
+  - Cấu hình Caddy Reverse Proxy hoàn chỉnh trong `infra/caddy/Caddyfile` với `tls internal` (Caddy Internal CA tự động phát hành chứng chỉ TLS ECDSA P-256).
+  - Tích hợp tiêu đề bảo mật biên chuẩn OWASP: `Strict-Transport-Security`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, che giấu banner máy chủ (`-Server`).
+  - Hỗ trợ truyền phát Server-Sent Events (SSE) thời gian thực không bộ đệm (`flush_interval -1` trên `/api/v1/jobs/stream`).
+  - Chuyển tiếp an toàn mọi yêu cầu API và tệp tĩnh SPA về backend FastAPI tại `127.0.0.1:8765`.
+- **Trích xuất IP Khách Tin Cậy & Chống Giả Mạo IP (RFC 7239 / OWASP Trusted Client IP Resolver):**
+  - Triển khai `extract_client_ip` và `normalize_ip` trong `apps/server/src/core/network.py`:
+    - Chỉ tin cậy các tiêu đề chuyển tiếp (`X-Forwarded-For`, `X-Real-IP`) khi socket peer kết nối trực tiếp là một proxy được tin cậy (`settings.TRUSTED_PROXIES = ["127.0.0.1", "::1"]`).
+    - Phớt lờ 100% tiêu đề chuyển tiếp từ các kết nối trực tiếp không tin cậy, triệt tiêu hoàn toàn kỹ thuật vượt rate limit bằng IP spoofing.
+    - Phân giải chuỗi proxy từ phải sang trái (right-to-left), loại bỏ cổng và kiểm tra hợp lệ qua `ipaddress.ip_address`.
+  - Cập nhật endpoint `/api/v1/auth/login` để trích xuất IP qua resolver tin cậy, cô lập hoàn toàn ngân sách đăng nhập giữa các biên tập viên kết nối qua reverse proxy.
+- **Khóa Độc Quyền Tiến Trình Runner Cấp OS (OS-Level Standalone Runner Process Lock):**
+  - Triển khai lớp `RunnerProcessLock` trong `apps/server/src/runner.py` sử dụng khóa file độc quyền cấp nhân hệ điều hành (`msvcrt.locking(LK_NBLCK)` trên Windows và `fcntl.flock` trên Unix) tại `.runner.lock`.
+  - Ngăn chặn tuyệt đối việc khởi chạy đè hai tiến trình Runner gây xung đột cổng engine worker hoặc tranh chấp slot tài nguyên.
+- **Bảo Toàn Ranh Giới An Ninh Phase 4 & 5A:**
+  - Tiếp tục từ chối tuyệt đối xác thực token qua URL query parameters (`QUERY_AUTH_PROHIBITED`, HTTP 400/401) trên mọi endpoint tải và stream âm thanh.
+  - Bảo toàn 1 GPU slot duy nhất, chế độ SQLite WAL, và phân quyền RBAC.
+- **Bộ Kiểm Thử Toàn Diện & Chứng Minh An Ninh:**
+  - 12/12 ca kiểm thử chuyên sâu Milestone 5B-1 PASSED 100% (`tests/integration/test_phase5b1_trusted_proxy.py`).
+  - 111/111 ca kiểm thử tích hợp (integration tests) PASSED 100%.
+  - 9/9 ca kiểm thử unit & contract PASSED 100%.
+  - 4/4 ca kiểm thử trình duyệt E2E Playwright PASSED 100%.
+  - Frontend production build hoàn thành hoàn hảo (0 lỗi TypeScript).
+  - Bản sao lưu cơ sở dữ liệu `studio_20261009_031341.db` (SHA256: `d440ec52bbb731b417d936f42f5b21434598d453d57f5fd5e8d280d2c0a56527`, 15 bảng toàn vẹn).
+- **Trạng thái Caddy Runtime & Kế hoạch 5B-2:**
+  - Ghi nhận trạng thái tệp thực thi Caddy chưa có sẵn trong PATH hệ thống; runtime trực tiếp trên cổng 9443 ở trạng thái CONDITIONAL.
+  - Lập tài liệu vận hành chi tiết `infra/caddy/README.md` và kế hoạch chưa thực thi `docs/operations/PHASE_05B_LAN_ROLLOUT_AND_ROLLBACK.md` cho Milestone 5B-2.
+
 ## 2026-10-09 — Phase 5A Final Closure R2: Authentication Throttling, Quota Lease Safety & Autonomous Batch Processing (Acceptance PASS)
 
 - **Hệ Thống Điều Tiết Xác Thực 3 Tầng Độc Lập (Priority P0 Multi-Tier Login Throttling):**

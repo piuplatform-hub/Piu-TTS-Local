@@ -1,22 +1,24 @@
 # AI Voice Studio — Giới Hạn Đã Biết & Ranh Giới Vận Hành (Phase 5 Known Limitations)
 
-**Giai đoạn áp dụng:** Phase 5A Release Gate R1  
+**Giai đoạn áp dụng:** Phase 5B-1 (Loopback-Only Gateway Staging)  
 **Môi trường:** Máy trạm cục bộ (Local Workstation `127.0.0.1`)  
 **Ngày cập nhật:** 09/10/2026  
-**Kiến trúc:** R1.1 Modular Monolith (SQLite WAL mode, Process-isolated Engine Workers)  
+**Kiến trúc:** R1.1 Modular Monolith (Caddy Internal TLS Staging, SQLite WAL mode, Process-isolated Engine Workers)  
 
 ---
 
 ## 1. RANH GIỚI MẠNG VÀ PHẠM VI TRUY CẬP (NETWORK BOUNDARIES)
 
-1. **Giới hạn Loopback tuyệt đối:**
-   - Cả Backend API (Uvicorn, cổng 8000) và Frontend Web (Vite Dev / Static Server, cổng 5173) hiện tại chỉ được phép lắng nghe trên địa chỉ loopback cục bộ `127.0.0.1`.
-   - Hệ thống **chưa được cấu hình lắng nghe trên `0.0.0.0`**, chưa mở cổng trên Windows Firewall, và chưa thể truy cập từ các thiết bị khác trong mạng nội bộ (LAN).
-   - Việc mở rộng ra mạng LAN và thiết lập Reverse Proxy (Caddy) cùng chứng chỉ TLS tự ký thuộc phạm vi của **Phase 5B (chưa được phép kích hoạt)**.
+1. **Dàn dựng Cổng Reverse Proxy Loopback (Milestone 5B-1 Loopback Staging):**
+   - Đã dàn dựng Caddy Reverse Proxy và cơ chế trích xuất client IP an toàn chống IP spoofing (`extract_client_ip`).
+   - Cổng staging lắng nghe trên `https://127.0.0.1:9443` với chứng chỉ nội bộ (`tls internal`).
+   - Backend FastAPI tiếp tục lắng nghe an toàn trên `http://127.0.0.1:8765`.
+   - Hệ thống **CHƯA phơi bày ra mạng LAN (`0.0.0.0`)**, chưa mở Windows Firewall. Việc mở mạng LAN thuộc phạm vi **Milestone 5B-2 (chưa được phép kích hoạt)**.
 
-2. **Chưa có lớp mã hóa đường truyền (No TLS on Localhost):**
-   - Các kết nối nội bộ giữa trình duyệt và máy chủ backend trên `127.0.0.1` hiện đang sử dụng giao thức HTTP thuần túy.
-   - Điều này chấp nhận được đối với môi trường máy trạm cá nhân khép kín, nhưng bắt buộc phải có TLS khi chuyển sang chia sẻ mạng LAN.
+2. **Trạng thái tệp thực thi Caddy trên máy trạm:**
+   - Tệp thực thi `caddy.exe` chưa được cài đặt sẵn trong PATH hệ thống.
+   - Toàn bộ tệp cấu hình `infra/caddy/Caddyfile`, hướng dẫn vận hành `infra/caddy/README.md`, và bộ kiểm thử tự động đã hoàn thành và đạt 100% PASS.
+   - Bước khởi chạy trực tiếp tiến trình Caddy thời gian thực trên cổng 9443 ở trạng thái **CONDITIONAL** chờ quản trị viên cài đặt tệp nhị phân `caddy.exe`.
 
 ---
 

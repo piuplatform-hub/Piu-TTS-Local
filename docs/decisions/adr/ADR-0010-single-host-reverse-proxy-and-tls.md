@@ -1,12 +1,12 @@
 ---
 id: ADR-0010
 title: Single-Host Local Reverse Proxy & Internal TLS for Studio LAN Access
-status: proposed
+status: accepted-staged
 decision_authority: Product Owner
 owner: Principal Software Architect
 created: 2026-10-09
 updated: 2026-10-09
-related: [ADR-0001, ADR-0002, ADR-0005, ADR-0006]
+related: [ADR-0001, ADR-0002, ADR-0005, ADR-0006, ADR-0011]
 ---
 
 # Decision record: ADR-0010: Single-Host Local Reverse Proxy & Internal TLS for Studio LAN Access
@@ -23,28 +23,35 @@ Trong các Phase 0–4, máy chủ FastAPI chỉ lắng nghe trên giao diện c
 
 ## Proposed approach / options
 
-### Phương án A (Được đề xuất): Caddy Server làm Local Reverse Proxy
+### Phương án A (Được chấp thuận): Caddy Server làm Local Reverse Proxy
 - **Đặc điểm:** Tệp thực thi đơn lẻ (single portable binary `caddy.exe`), hiệu năng rất cao, chiếm <30MB RAM.
 - **Ưu điểm vượt trội:** Tích hợp sẵn bộ máy quản lý chứng chỉ số nội bộ (**Caddy Internal CA**), tự động sinh và gia hạn chứng chỉ TLS cho IP LAN hoặc hostname nội bộ (`studio.local`) mà không cần kết nối Internet hay dùng Let's Encrypt. Hỗ trợ chuẩn HTTP/2, HTTP/3, tự động chuyển hướng HTTP sang HTTPS, nén zstd/gzip cực nhanh và cấu hình Caddyfile vô cùng tinh gọn.
-- **Nhược điểm:** Cần tải tệp nhị phân `caddy.exe` đặt vào thư mục công cụ của dự án.
+- **Tiến trình triển khai:** Đã hoàn thành dàn dựng ở mức Loopback Gateway Staging (`127.0.0.1:9443`) trong Milestone 5B-1.
 
 ### Phương án B: Nginx for Windows
-- **Đặc điểm:** Phổ biến trong môi trường Linux, nhưng bản chạy trên Windows sử dụng kiến trúc mô phỏng `select()` cũ, quản lý tiến trình phức tạp hơn và không có tính năng tự động cấp chứng chỉ TLS nội bộ (phải tự dùng OpenSSL dòng lệnh phức tạp).
+- **Đặc điểm:** Phổ biến trong môi trường Linux, nhưng bản chạy trên Windows sử dụng kiến trúc mô phỏng `select()` cũ, quản lý tiến trình phức tạp hơn và không có tính năng tự động cấp chứng chỉ TLS nội bộ.
 
 ### Phương án C: Uvicorn Native SSL trên FastAPI
 - **Đặc điểm:** Cấu hình `--ssl-keyfile` và `--ssl-certfile` trực tiếp vào lệnh khởi chạy Uvicorn và bind `0.0.0.0`.
-- **Nhược điểm:** Phá vỡ nguyên tắc phân tầng an ninh; FastAPI phải tự mã hóa SSL, tiêu tốn CPU của tiến trình Python; không hỗ trợ HTTP/2; khó quản lý phân phối chứng chỉ tự ký; nếu Uvicorn gặp lỗi thì toàn bộ kết nối mạng bị gián đoạn.
+- **Nhược điểm:** Phá vỡ nguyên tắc phân tầng an ninh; tiêu tốn CPU của tiến trình Python; không hỗ trợ HTTP/2; khó quản lý phân phối chứng chỉ tự ký.
 
 ## Risks / security / operations
 - **Bảo mật:** Bắt buộc 100% kết nối qua mạng LAN phải sử dụng HTTPS. Không cho phép fallback HTTP không mã hóa.
-- **Chứng chỉ tự ký trên máy khách:** Máy tính biên tập viên truy cập lần đầu sẽ thấy cảnh báo "Untrusted Certificate" nếu chưa cài đặt Root CA của Caddy. Cung cấp script PowerShell một chạm (`scripts/install_lan_cert.ps1`) để nhập chứng chỉ tin cậy vào Windows Certificate Store của máy khách.
+- **Trích xuất IP máy khách tin cậy (RFC 7239 / OWASP):** Chỉ tin cậy `X-Forwarded-For` khi kết nối đến trực tiếp từ `TRUSTED_PROXIES` (`127.0.0.1`, `::1`). Ngăn chặn hoàn toàn IP spoofing và đảm bảo cô lập rate limit giữa các biên tập viên.
+- **Chứng chỉ tự ký trên máy khách:** Phân phối file Root CA nội bộ của Caddy (`pki/authorities/local/root.crt`) tới máy khách phòng thu và cài đặt bằng lệnh `certutil -addstore -f "Root" root.crt`.
 
 ## Acceptance & evidence
-- [ ] Caddy lắng nghe cổng 443 trên IP LAN và chuyển tiếp chính xác về `127.0.0.1:8765`.
-- [ ] Mọi truy cập cổng 80 (HTTP) tự động chuyển hướng 301 sang cổng 443 (HTTPS).
-- [ ] FastAPI vẫn duy trì lắng nghe an toàn trên `127.0.0.1:8765`.
-- [ ] Tải tệp tĩnh và API qua HTTPS đạt độ trễ < 50ms trên mạng LAN 1Gbps.
+- [x] Cấu hình Caddyfile staging loopback trên cổng `9443` (`infra/caddy/Caddyfile`) chuyển tiếp về `127.0.0.1:8765`.
+- [x] Triển khai trích xuất client IP an toàn chống IP spoofing (`extract_client_ip` trong `apps/server/src/core/network.py`).
+- [x] Độc lập hóa giới hạn tốc độ 3 tầng cho từng client IP qua reverse proxy (`tests/integration/test_phase5b1_trusted_proxy.py` - 12/12 PASS).
+- [x] Khóa tiến trình Runner đơn lẻ cấp OS (`RunnerProcessLock`).
+- [x] FastAPI duy trì lắng nghe an toàn trên `127.0.0.1:8765`.
+- [ ] Runtime thực thi Caddy cổng 9443: Trạng thái CONDITIONAL (chờ cài đặt tệp nhị phân `caddy.exe`).
+- [ ] Phơi bày mạng LAN (Milestone 5B-2): Chưa thực thi, chờ phê duyệt mở cổng tường lửa.
 
 ## Decision / outcome / follow-up
-- **Trạng thái:** **Proposed (Chờ Product Owner phê duyệt)**.
+- **Trạng thái:** **Accepted-Staged (Đã chấp thuận & dàn dựng loopback tại Milestone 5B-1)**.
 - **Kế hoạch liên quan:** [PHASE_05_DEPLOYMENT_SECURITY.md](../../plans/PHASE_05_DEPLOYMENT_SECURITY.md).
+- **Tài liệu kiểm thử:** [PHASE_05B1_LOOPBACK_GATEWAY_EVIDENCE.md](../../reports/tests/PHASE_05B1_LOOPBACK_GATEWAY_EVIDENCE.md).
+- **Đánh giá an ninh:** [PHASE_05B1_GATEWAY_SECURITY_REVIEW.md](../../reports/reviews/PHASE_05B1_GATEWAY_SECURITY_REVIEW.md).
+- **Kế hoạch LAN Rollout/Rollback 5B-2:** [PHASE_05B_LAN_ROLLOUT_AND_ROLLBACK.md](../../operations/PHASE_05B_LAN_ROLLOUT_AND_ROLLBACK.md).

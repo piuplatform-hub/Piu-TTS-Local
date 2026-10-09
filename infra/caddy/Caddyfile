@@ -1,0 +1,51 @@
+{
+    # AI Voice Studio — Phase 5B-1 Loopback Staging Gateway
+    # Bound strictly to 127.0.0.1; LAN exposure (0.0.0.0) is PROHIBITED in Milestone 5B-1
+    admin off
+    auto_https disable_redirects
+}
+
+https://127.0.0.1:9443 {
+    tls internal
+
+    # Edge Security Headers (OWASP Aligned)
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        -Server
+    }
+
+    # Real-Time Server-Sent Events (SSE) Streaming
+    # Unbuffered streaming is mandatory for interactive job progression
+    @sse path /api/v1/jobs/stream
+    handle @sse {
+        reverse_proxy 127.0.0.1:8765 {
+            header_up Host {upstream_hostport}
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+            flush_interval -1
+        }
+    }
+
+    # General API & SPA Proxy to FastAPI Backend
+    handle {
+        reverse_proxy 127.0.0.1:8765 {
+            header_up Host {upstream_hostport}
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+        }
+    }
+
+    # Access Logging with Safe Rotation
+    log {
+        output file D:/AIVoiceStudioData/logs/caddy_access.log {
+            roll_size 10mb
+            roll_keep 5
+        }
+        format json
+    }
+}

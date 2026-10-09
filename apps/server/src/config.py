@@ -4,6 +4,7 @@ AI Voice Studio — Application Configuration & Environment Settings
 
 import os
 from pathlib import Path
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -49,6 +50,32 @@ class Settings(BaseSettings):
     LOGIN_MAX_FAILED_ATTEMPTS_USER: int = 10  # Max consecutive failed attempts per account across all IPs (distributed attack)
     LOGIN_MAX_FAILED_ATTEMPTS_IP: int = 20  # Max consecutive failed attempts per source IP across all usernames (credential spraying)
     LOGIN_LOCKOUT_WINDOW_MINUTES: int = 15  # Lockout observation window and backoff in minutes
+
+    # Phase 5B-1: Reverse Proxy & Trusted Client Identity
+    TRUST_FORWARDED_HEADERS: bool = True
+    TRUSTED_PROXIES: list[str] = ["127.0.0.1", "::1"]
+    CORS_ORIGINS: list[str] = [
+        "http://127.0.0.1:8765",
+        "http://localhost:8765",
+        "http://127.0.0.1:5173",
+        "http://localhost:5173",
+        "https://127.0.0.1:9443",
+        "https://localhost:9443",
+    ]
+
+    @field_validator("TRUSTED_PROXIES", "CORS_ORIGINS", mode="before")
+    @classmethod
+    def _parse_list_from_env(cls, v):
+        if isinstance(v, str):
+            cleaned = v.strip()
+            if cleaned.startswith("[") and cleaned.endswith("]"):
+                import json
+                try:
+                    return json.loads(cleaned)
+                except Exception:
+                    pass
+            return [x.strip() for x in cleaned.split(",") if x.strip()]
+        return v
 
     def get_data_dir(self) -> Path:
         """

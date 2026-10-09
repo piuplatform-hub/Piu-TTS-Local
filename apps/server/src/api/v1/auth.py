@@ -16,6 +16,7 @@ from ...schemas.auth import (
 from ...services.auth_service import AuthService, get_current_user, require_admin
 from ...services.user_quota_service import UserQuotaService
 from ...core.security import create_access_token
+from ...core.network import extract_client_ip
 from ...core.errors import AppException
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -65,8 +66,8 @@ async def login(
     Local login endpoint exchanging credentials for a JWT session token.
     Protected by application-level rate limiting and brute force defense.
     """
-    # Bound IP extraction: Only trust direct socket peer host, no arbitrary X-Forwarded-For
-    client_ip = request.client.host if request.client and request.client.host else "127.0.0.1"
+    # Phase 5B-1: Secure client IP extraction behind trusted reverse proxy
+    client_ip = extract_client_ip(request)
     user = await AuthService.authenticate_user(db, req.username, req.password, ip_address=client_ip)
     token = create_access_token({
         "sub": user.id,

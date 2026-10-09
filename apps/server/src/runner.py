@@ -10,6 +10,7 @@ and continuously claims and executes durable jobs using database-backed leases.
 
 import argparse
 import asyncio
+from datetime import datetime, timezone
 import logging
 import os
 from pathlib import Path
@@ -29,6 +30,60 @@ logging.basicConfig(
 logger = logging.getLogger("studio.runner")
 
 
+class RunnerProcessLock:
+    """
+    Exclusive OS-level file lock ensuring only a single Standalone Runner
+    instance executes at any given time.
+    """
+    def __init__(self, lock_path: Path):
+        self.lock_path = lock_path
+        self._file = None
+
+    def acquire(self) -> bool:
+        self.lock_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            self._file = open(self.lock_path, "a+b")
+            self._file.seek(0)
+            if sys.platform == "win32":
+                import msvcrt
+                msvcrt.locking(self._file.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(self._file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            self._file.seek(0)
+            self._file.truncate()
+            self._file.write(f"pid={os.getpid()}\nstarted={datetime.now(timezone.utc).isoformat()}\n".encode("utf-8"))
+            self._file.flush()
+            return True
+        except (OSError, IOError, PermissionError):
+            if self._file:
+                try:
+                    self._file.close()
+                except Exception:
+                    pass
+                self._file = None
+            return False
+
+    def release(self):
+        if self._file:
+            try:
+                if sys.platform == "win32":
+                    import msvcrt
+                    self._file.seek(0)
+                    msvcrt.locking(self._file.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(self._file.fileno(), fcntl.LOCK_UN)
+                self._file.close()
+            except Exception:
+                pass
+            self._file = None
+            try:
+                self.lock_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+
 async def run_standalone_runner(
     poll_interval: float = 0.5,
     lease_seconds: int = 30,
@@ -36,6 +91,17 @@ async def run_standalone_runner(
 ):
     pid = os.getpid()
     effective_worker_id = worker_id or f"runner-{pid}"
+
+    # Enforce process uniqueness via exclusive lockfile
+    lock_file = settings.get_data_dir() / ".runner.lock"
+    runner_lock = RunnerProcessLock(lock_file)
+    if not runner_lock.acquire():
+        logger.error("=" * 65)
+        logger.error("STARTUP ABORTED: ANOTHER STANDALONE RUNNER IS ALREADY ACTIVE!")
+        logger.error(f"Lockfile currently held at: {lock_file}")
+        logger.error("Only one runner instance may execute simultaneously to preserve engine & queue isolation.")
+        logger.error("=" * 65)
+        return False
 
     logger.info("=" * 65)
     logger.info(f"AI VOICE STUDIO — STANDALONE RUNNER INITIALIZING (PID: {pid})")
@@ -90,7 +156,9 @@ async def run_standalone_runner(
         logger.info("Terminating supervised engine workers...")
         await supervisor.stop_all()
         await database.engine.dispose()
+        runner_lock.release()
         logger.info("Standalone Runner terminated cleanly.")
+    return True
 
 
 def main():

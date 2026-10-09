@@ -13,10 +13,11 @@ Tests:
 import asyncio
 from datetime import datetime, timezone, timedelta
 import pytest
-from httpx import AsyncClient
+from httpx import AsyncClient, ASGITransport
 
 from apps.server.src import database
 from apps.server.src.config import settings
+from apps.server.src.main import app
 from apps.server.src.models.user import User
 from apps.server.src.models.login_attempt import LoginAttemptRecord
 from apps.server.src.services.auth_service import AuthService, hash_password
@@ -186,34 +187,37 @@ async def test_rate_limit_expiry_and_success_reset(test_env):
 
 
 @pytest.mark.asyncio
-async def test_client_ip_spoof_resistance_ignores_x_forwarded_for(client: AsyncClient, test_env):
+async def test_client_ip_spoof_resistance_ignores_x_forwarded_for(test_env):
     """
     Scenario 6: Verify client IP determination ignores spoofed X-Forwarded-For headers.
-    An attacker sending arbitrary X-Forwarded-For headers cannot evade rate limiting.
+    An attacker sending arbitrary X-Forwarded-For headers directly to the API cannot evade rate limiting.
     """
     async with database.AsyncSessionLocal() as session:
         u = User(id="user_spoof_test", username="spoof_user", password_hash=hash_password("Pass123!"), role="editor")
         session.add(u)
         await session.commit()
 
-    # Fail 5 times while sending randomized X-Forwarded-For headers
-    for i in range(5):
-        resp = await client.post(
+    # Direct untrusted connection from peer 198.51.100.99 (not in TRUSTED_PROXIES)
+    untrusted_transport = ASGITransport(app=app, client=("198.51.100.99", 50000))
+    async with AsyncClient(transport=untrusted_transport, base_url="http://test") as untrusted_client:
+        # Fail 5 times while sending randomized X-Forwarded-For headers
+        for i in range(5):
+            resp = await untrusted_client.post(
+                "/api/v1/auth/login",
+                json={"username": "spoof_user", "password": "WrongPassword!"},
+                headers={"X-Forwarded-For": f"203.0.113.{i}"},
+            )
+            assert resp.status_code == 401
+
+        # 6th attempt with yet another spoofed IP must STILL be locked out because peer IP is used
+        resp_locked = await untrusted_client.post(
             "/api/v1/auth/login",
             json={"username": "spoof_user", "password": "WrongPassword!"},
-            headers={"X-Forwarded-For": f"198.51.100.{i}"},
+            headers={"X-Forwarded-For": "192.0.2.88"},
         )
-        assert resp.status_code == 401
-
-    # 6th attempt with yet another spoofed IP must STILL be locked out
-    resp_locked = await client.post(
-        "/api/v1/auth/login",
-        json={"username": "spoof_user", "password": "WrongPassword!"},
-        headers={"X-Forwarded-For": "203.0.113.88"},
-    )
-    assert resp_locked.status_code == 429
-    assert resp_locked.json()["code"] == "TOO_MANY_LOGIN_ATTEMPTS"
-    assert "Retry-After" in resp_locked.headers
+        assert resp_locked.status_code == 429
+        assert resp_locked.json()["code"] == "TOO_MANY_LOGIN_ATTEMPTS"
+        assert "Retry-After" in resp_locked.headers
 
 
 @pytest.mark.asyncio
