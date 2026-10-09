@@ -1,0 +1,108 @@
+{
+	# ==============================================================================
+	# AI VOICE STUDIO — PHASE 5B-2 LAN GATEWAY CONFIGURATION TEMPLATE
+	# ==============================================================================
+	# STATUS: DEPLOYMENT TEMPLATE ONLY — NOT ACTIVE ON WORKSTATION
+	#
+	# IMPORTANT GOVERNANCE & SECURITY NOTICE:
+	# 1. This configuration is for controlled multi-user LAN operation.
+	# 2. DO NOT bind to 0.0.0.0. Bind EXCLUSIVELY to the designated workstation LAN IP.
+	# 3. Environment variable {$LAN_IP} must be set prior to launch (e.g. 192.168.1.50).
+	# 4. Windows Firewall and LAN exposure remain BLOCKED until explicit PO authorization.
+	# 5. Root CA must NOT be installed into Windows machine store without enterprise policy.
+	# ==============================================================================
+
+	# Disable administrative API socket (Attack surface minimization)
+	admin off
+
+	# Enable automatic HTTP to HTTPS redirection on custom ports
+	auto_https disable_redirects
+
+	# Prevent Caddy from attempting to install CA certificates into OS/Browser system stores
+	skip_install_trust
+}
+
+# ------------------------------------------------------------------------------
+# HTTP -> HTTPS REDIRECT LISTENER (LAN EXPLICIT BINDING)
+# ------------------------------------------------------------------------------
+http://{$LAN_IP:127.0.0.1}:8080 {
+	bind {$LAN_IP:127.0.0.1}
+
+	# Redirect all plaintext HTTP traffic to hardened TLS endpoint
+	redir https://{host}:9443{uri} permanent
+}
+
+# ------------------------------------------------------------------------------
+# HTTPS SECURE LAN GATEWAY (TLS TERMINATION & PROXYING)
+# ------------------------------------------------------------------------------
+https://{$LAN_IP:127.0.0.1}:9443 {
+	bind {$LAN_IP:127.0.0.1}
+
+	# Automatic Internal TLS with dynamic Subject Alternative Name (SAN) for LAN IP
+	tls internal {
+		on_demand
+	}
+
+	# Production Edge Security Headers (OWASP Top 10 Aligned)
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' ws: wss:; font-src 'self' data:;"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
+
+	# Trusted LAN Subnet Isolation & Access Control
+	# Rejects requests originating from untrusted public or alien networks
+	@trusted_lan {
+		remote_ip 127.0.0.1/32 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
+	}
+	@untrusted_client not remote_ip 127.0.0.1/32 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
+
+	handle @untrusted_client {
+		respond "Access Denied: Untrusted Network Origin" 403 {
+			close
+		}
+	}
+
+	# --------------------------------------------------------------------------
+	# Real-Time Server-Sent Events (SSE) Route
+	# Mandatory: flush_interval -1 to prevent Caddy / proxy response buffering
+	# --------------------------------------------------------------------------
+	@sse_endpoints path /api/v1/jobs/*/events
+	handle @sse_endpoints {
+		reverse_proxy 127.0.0.1:8000 {
+			header_up Host {upstream_hostport}
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+			flush_interval -1
+		}
+	}
+
+	# --------------------------------------------------------------------------
+	# Core Application & API Proxy to FastAPI / Uvicorn Backend
+	# --------------------------------------------------------------------------
+	handle {
+		reverse_proxy 127.0.0.1:8000 {
+			header_up Host {upstream_hostport}
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+
+	# --------------------------------------------------------------------------
+	# Sanitized Structured JSON Access Logging
+	# Rotates at 20MB with 10 retention files; credentials strictly omitted
+	# --------------------------------------------------------------------------
+	log {
+		output file D:/AIVoiceStudioData/logs/caddy_lan_access.log {
+			roll_size 20mb
+			roll_keep 10
+		}
+		format json
+	}
+}

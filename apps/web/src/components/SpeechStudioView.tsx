@@ -104,7 +104,7 @@ export const SpeechStudioView: React.FC<SpeechStudioViewProps> = ({ projectId, o
   }, [project, projectId]);
 
   // Audio Playback
-  const handlePlayAudio = (segmentId: string, artifactId: string) => {
+  const handlePlayAudio = async (segmentId: string, artifactId: string) => {
     if (playingSegmentId === segmentId) {
       if (audioRef.current) {
         audioRef.current.pause();
@@ -117,23 +117,27 @@ export const SpeechStudioView: React.FC<SpeechStudioViewProps> = ({ projectId, o
       audioRef.current.pause();
     }
 
-    const audioUrl = api.getArtifactAudioUrl(artifactId);
-    const audio = new Audio(audioUrl);
-    audioRef.current = audio;
-    setPlayingSegmentId(segmentId);
+    try {
+      const blobUrl = await api.fetchArtifactAudioBlob(artifactId);
+      const audio = new Audio(blobUrl);
+      audioRef.current = audio;
+      setPlayingSegmentId(segmentId);
 
-    audio.onended = () => {
-      setPlayingSegmentId(null);
-    };
-    audio.onerror = () => {
-      setPlayingSegmentId(null);
-      alert('Không thể phát file âm thanh này.');
-    };
+      audio.onended = () => {
+        setPlayingSegmentId(null);
+        window.URL.revokeObjectURL(blobUrl);
+      };
+      audio.onerror = () => {
+        setPlayingSegmentId(null);
+        window.URL.revokeObjectURL(blobUrl);
+        alert('Không thể phát file âm thanh này.');
+      };
 
-    audio.play().catch(e => {
-      console.warn('Playback error', e);
+      await audio.play();
+    } catch (err: any) {
+      console.warn('Playback error', err);
       setPlayingSegmentId(null);
-    });
+    }
   };
 
   // Reconcile status

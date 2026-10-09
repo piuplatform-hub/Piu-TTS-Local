@@ -134,27 +134,42 @@ Get-NetTCPConnection -LocalPort 9443 -State Listen | Select-Object LocalAddress,
 
 ---
 
-## 5. XÁC THỰC TLS NGHIÊM NGẶT & GHIM KHÓA SPKI
+## 5. XÁC THỰC TLS, PHẠM VI NGOẠI LỆ SPKI & GIỚI HẠN KIỂM CHỨNG TRÌNH DUYỆT
 
-### 5.1. Kiểm Tra Bác Bỏ Kết Nối Thiếu Chứng Chỉ Tin Cậy
-Thực hiện yêu cầu HTTPS không cung cấp root CA qua Python `httpx`:
-```python
-with httpx.Client(verify=True) as client:
-    client.get("https://127.0.0.1:9443/api/v1/health")
-```
-- **Kết quả**: Thất bại với lỗi `SSLCertVerificationError` (`unable to get local issuer certificate`), chứng minh kết nối qua Caddy áp dụng TLS xác thực nghiêm ngặt, không thể bị qua mặt nếu không có chứng chỉ tin cậy hợp lệ.
+### 5.1. Xác Thực Chuỗi Chứng Chỉ Chuẩn Qua Python httpx (Standard CA-Chain Validation)
+Thực hiện các yêu cầu HTTPS trực tiếp qua thư viện Python `httpx`:
+- **Trường hợp 1 (Kho chứng chỉ hệ thống mặc định - `verify=True`)**:
+  ```python
+  with httpx.Client(verify=True) as client:
+      client.get("https://127.0.0.1:9443/api/v1/health")
+  ```
+  - **Kết quả**: Thất bại hoàn toàn với lỗi `SSLCertVerificationError: [SSL: CERTIFICATE_VERIFY_FAILED] unable to get local issuer certificate`.
+  - **Ý nghĩa**: Chứng minh kết nối HTTPS của Caddy không sử dụng chứng chỉ công cộng và hệ thống Windows không tự động tin cậy Root CA nội bộ của Caddy khi chưa được cài đặt vào OS Trust Store.
+- **Trường hợp 2 (Xác thực chuỗi chứng chỉ đầy đủ với tệp Root CA - `verify=root_crt`)**:
+  ```python
+  with httpx.Client(verify=str(ROOT_CRT)) as client:
+      resp = client.get("https://127.0.0.1:9443/api/v1/health")
+  ```
+  - **Kết quả**: Thành công 100% với HTTP 200 `{"status": "ok", "version": "1.0.0"}`. Thư viện TLS thực hiện đầy đủ quy trình xác thực đường dẫn x509 (x509 path validation) từ Root CA -> Intermediate CA -> Leaf Certificate (`127.0.0.1`).
 
-### 5.2. Ghim Khóa Công Khai SPKI (Subject Public Key Info Pinning) Cho Browser E2E
-Để thực hiện kiểm thử E2E trên Google Chrome thực tế mà không cần thêm root CA vào hệ điều hành và không sử dụng `ignore_https_errors=True`:
-- Trích xuất cấu trúc ASN.1 DER của Leaf Certificate (`127.0.0.1.crt`) và Root Certificate (`root.crt`).
-- Tính toán mã băm SHA-256 Base64 của `SubjectPublicKeyInfo`:
+### 5.2. Chế Độ Ngoại Lệ Phạm Vi SPKI Trong Chromium (Chrome SPKI-Scoped Exception)
+Để kiểm thử giao diện người dùng trên Google Chrome thực tế mà không cài đặt Root CA vào kho chứng chỉ Windows CryptoAPI:
+- Trích xuất cấu trúc DER ASN.1 của chứng chỉ máy chủ Caddy và tính toán băm SHA-256 Base64 của `SubjectPublicKeyInfo`:
   - **Leaf SPKI**: `J1OxpA/7W7XHBy/MfaV3trVj/RC5ltlj4OJCLtVfFlM=`
   - **Root SPKI**: `LGk3TRqlmtCLTZui1dPvMdlWy9TqBrjYi9qo8qej8lI=`
-- Truyền tham số ghim khóa cho Chrome:
+- Khởi chạy Chrome với tham số ghim khóa SPKI:
   `--ignore-certificate-errors-spki-list=J1OxpA/7W7XHBy/MfaV3trVj/RC5ltlj4OJCLtVfFlM=,LGk3TRqlmtCLTZui1dPvMdlWy9TqBrjYi9qo8qej8lI=`
-- Kết quả kiểm chứng:
-  - Khi khóa SPKI khớp: Chrome kết nối HTTPS thành công và Playwright chạy với `ignore_https_errors=False`.
-  - Khi giả mạo khóa SPKI sai: Chrome lập tức chặn kết nối với lỗi `net::ERR_CERT_AUTHORITY_INVALID`.
+- **Cơ chế hoạt động**: Cờ này **không phải** là xác thực chuỗi chứng chỉ tiêu chuẩn của Windows. Đây là cơ chế ngoại lệ có phạm vi hạn chế nghiêm ngặt trong Chromium: Chromium chỉ bỏ qua cảnh báo chứng chỉ cho duy nhất các chứng chỉ có khóa công khai khớp chính xác với mã băm SPKI đã chỉ định.
+- **Xác minh bảo mật**: Khi truyền mã băm SPKI sai hoặc không khớp, Chrome lập tức chặn kết nối với lỗi `net::ERR_CERT_AUTHORITY_INVALID`.
+
+### 5.3. Minh Bạch Phạm Vi Kiểm Chứng Trình Duyệt: Những Gì ĐÃ và CHƯA Được Chứng Minh
+- **Những gì ĐÃ được chứng minh (Demonstrated)**:
+  1. Trình duyệt Chrome thật kết nối và truyền nhận dữ liệu mã hóa TLS trọn vẹn qua cổng Caddy HTTPS trên `127.0.0.1:9443`.
+  2. Mã hóa HTTPS hoạt động bình thường cho toàn bộ tài nguyên SPA (HTML, CSS, JS, API calls, SSE streaming, file downloads).
+  3. Cơ chế ghim khóa SPKI từ chối bất kỳ chứng chỉ nào không khớp với khóa của Caddy.
+  4. Hệ điều hành Windows và các trình duyệt khác trên máy tính không bị ô nhiễm chứng chỉ lạ (`Cert:\CurrentUser\Root` và `Cert:\LocalMachine\Root` giữ sạch 100%).
+- **Những gì CHƯA được chứng minh (NOT Demonstrated)**:
+  1. **Chưa chứng minh xác thực chuỗi CA tự động nguyên bản trên trình duyệt không dùng cờ khởi động**: Do chưa cài Root CA vào Windows Trust Store, nếu mở Chrome thông thường bằng tay và truy cập `https://127.0.0.1:9443/`, Chrome sẽ hiển thị màn hình cảnh báo đỏ `Your connection is not private` (`NET::ERR_CERT_AUTHORITY_INVALID`). Việc tin cậy trơn tru không cờ trên LAN sẽ yêu cầu phân phối Root CA có kiểm soát sang máy trạm client (sẽ đề xuất trong kế hoạch Phase 5B-2).
 
 ---
 
@@ -229,15 +244,20 @@ cur.execute('SELECT COUNT(*) FROM login_attempts WHERE username LIKE "%caddy%";'
 
 ## 9. MA TRẬN KẾT QUẢ TOÀN BỘ BỘ TEST HỒI QUY
 
+### 9.1. Bộ Kiểm Thử Tự Động Pytest (Chính Xác 131 Tests)
 | Hạng mục kiểm thử | Phạm vi | Số lượng test | Kết quả | Thời gian |
 | :--- | :--- | :--- | :--- | :--- |
 | **Unit Tests** | Phân đoạn văn bản tiếng Việt & tiếng Trung | 3/3 | **PASS** | 0.04s |
 | **Contract Tests** | Tuân thủ Engine SDK & Manifest (Mock, Qwen3, VieNeu) | 6/6 | **PASS** | 128.75s |
-| **Integration Tests** | Quota, RBAC, Rate Limiting, Preflight, Queue & Caddy | 117/117 | **PASS** | ~265s |
+| **Integration Tests** | Quota, RBAC, Rate Limiting, Preflight, Queue & Caddy Gateway | 117/117 | **PASS** | ~265s |
 | **Browser E2E (Phase 1-4)** | Trình duyệt thực tế (Studio, Export WAV/MP3) | 4/4 | **PASS** | ~55s |
 | **Browser E2E (Phase 5B-1)** | Caddy HTTPS (SPKI Pinning, Full UI Journey) | 1/1 | **PASS** | 9.16s |
-| **Frontend Production Build** | TypeScript compiler & Vite bundle | 1/1 | **PASS** | 17.15s |
-| **Tổng cộng** | **Toàn bộ hệ thống AI Voice Studio** | **132/132** | **PASS 100%** | - |
+| **Tổng cộng Pytest** | **Toàn bộ kiểm thử tự động của hệ thống** | **131/131** | **PASS 100%** | - |
+
+### 9.2. Kiểm Tra Đóng Gói Mã Nguồn (Build Verification)
+| Hạng mục xác minh | Lệnh thực thi | Phạm vi | Kết quả | Thời gian |
+| :--- | :--- | :--- | :--- | :--- |
+| **Frontend Production Build** | `npm run build` | TypeScript compile (`tsc`) + Vite bundle (`vite build`) | **PASS** (0 lỗi) | 17.15s |
 
 ---
 

@@ -158,6 +158,51 @@ class ApiClient {
     return `/api/v1/artifacts/${artifactId}/file`;
   }
 
+  async fetchArtifactAudioBlob(artifactId: string): Promise<string> {
+    const url = `/api/v1/artifacts/${artifactId}/file`;
+    const headers: Record<string, string> = {};
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`;
+    }
+    const res = await fetch(url, { headers });
+    if (!res.ok) {
+      throw new Error(`Không thể tải dữ liệu âm thanh: HTTP ${res.status}`);
+    }
+    const blob = await res.blob();
+    return window.URL.createObjectURL(blob);
+  }
+
+  async downloadArtifactAudio(artifactId: string, fallbackFilename?: string): Promise<void> {
+    const url = `/api/v1/artifacts/${artifactId}/file`;
+    const headers: Record<string, string> = {};
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`;
+    }
+    const res = await fetch(url, { headers });
+    if (!res.ok) {
+      throw new Error(`Không thể tải file âm thanh: HTTP ${res.status}`);
+    }
+    const cd = res.headers.get('content-disposition');
+    let filename = fallbackFilename || `speech-${artifactId.slice(0, 8)}.wav`;
+    if (cd) {
+      const match = cd.match(/filename="?([^";]+)"?/i);
+      if (match && match[1]) {
+        filename = match[1];
+      }
+    }
+    const blob = await res.blob();
+    const blobUrl = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = blobUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => {
+      window.URL.revokeObjectURL(blobUrl);
+    }, 5000);
+  }
+
   async uploadReferenceAudio(file: File, voiceUseConsent: boolean): Promise<{ asset_id: string; message: string; asset: any }> {
     const formData = new FormData();
     formData.append('file', file);

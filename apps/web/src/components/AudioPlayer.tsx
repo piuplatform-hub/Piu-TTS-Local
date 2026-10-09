@@ -16,7 +16,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ artifactId }) => {
   const [isMuted, setIsMuted] = useState(false);
   const [metadata, setMetadata] = useState<ArtifactMetadata | null>(null);
 
-  const audioSrc = api.getArtifactAudioUrl(artifactId);
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
 
   useEffect(() => {
     // Fetch artifact metadata
@@ -29,8 +29,19 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ artifactId }) => {
       })
       .catch((err) => console.error('Failed to load artifact metadata', err));
 
+    let active = true;
+    api.fetchArtifactAudioBlob(artifactId)
+      .then((url) => {
+        if (active) setBlobUrl(url);
+      })
+      .catch((err) => console.error('Failed to load artifact audio blob', err));
+
     setIsPlaying(false);
     setCurrentTime(0);
+
+    return () => {
+      active = false;
+    };
   }, [artifactId]);
 
   const togglePlay = () => {
@@ -94,7 +105,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ artifactId }) => {
     <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl">
       <audio
         ref={audioRef}
-        src={audioSrc}
+        src={blobUrl || undefined}
         onTimeUpdate={onTimeUpdate}
         onEnded={onEnded}
         onLoadedMetadata={() => {
@@ -175,14 +186,13 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ artifactId }) => {
             />
           </div>
 
-          <a
-            href={audioSrc}
-            download={`speech-${artifactId.slice(0, 8)}.wav`}
+          <button
+            onClick={() => api.downloadArtifactAudio(artifactId)}
             className="flex items-center space-x-1.5 px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700/80 text-emerald-400 hover:text-emerald-300 border border-slate-700 text-xs font-medium transition-all shadow-sm"
           >
             <Download className="w-3.5 h-3.5" />
             <span>Tải WAV</span>
-          </a>
+          </button>
         </div>
       </div>
 

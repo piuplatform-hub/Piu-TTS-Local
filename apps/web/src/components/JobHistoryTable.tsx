@@ -184,14 +184,13 @@ export const JobHistoryTable: React.FC = () => {
                             >
                               <Play className="w-3.5 h-3.5" />
                             </button>
-                            <a
-                              href={api.getArtifactAudioUrl(job.artifact_id)}
-                              download={`speech-${job.artifact_id.slice(0, 8)}.wav`}
+                            <button
+                              onClick={() => api.downloadArtifactAudio(job.artifact_id!)}
                               className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
                               title="Tải về"
                             >
                               <Download className="w-3.5 h-3.5" />
-                            </a>
+                            </button>
                           </>
                         )}
 

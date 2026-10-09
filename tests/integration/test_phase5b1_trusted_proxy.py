@@ -527,33 +527,25 @@ class TestLiveCaddyHttpsGateway:
         )
 
         try:
-            # 2. Poll for listener socket readiness
-            import httpx
-            ready = False
-            for _ in range(30):
-                try:
-                    with httpx.Client(verify=str(root_crt), timeout=0.5) as client:
-                        # Request will return 502 Bad Gateway if FastAPI upstream isn't up, but TLS handshake succeeds!
-                        client.get("https://127.0.0.1:9443/api/v1/health")
-                        ready = True
-                        break
-                except httpx.HTTPStatusError:
-                    ready = True
+            # 2. Poll for listener socket readiness directly via socket listener
+            bound_ips = []
+            for _ in range(50):
+                ps_cmd = '@(Get-NetTCPConnection -LocalPort 9443 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty LocalAddress) -join ","'
+                res = subprocess.run(["powershell", "-Command", ps_cmd], capture_output=True, text=True)
+                bound_ips = [ip.strip() for ip in res.stdout.strip().split(",") if ip.strip()]
+                if bound_ips:
                     break
-                except httpx.ConnectError:
-                    time.sleep(0.1)
-                except Exception:
-                    # Any response means TLS connection succeeded
-                    ready = True
-                    break
+                time.sleep(0.1)
 
-            assert ready, "Caddy TLS gateway failed to respond within 3 seconds"
-
-            # 3. Assert socket listener is bound exclusively to 127.0.0.1
-            ps_cmd = '@(Get-NetTCPConnection -LocalPort 9443 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty LocalAddress) -join ","'
-            res = subprocess.run(["powershell", "-Command", ps_cmd], capture_output=True, text=True)
-            bound_ips = [ip.strip() for ip in res.stdout.strip().split(",") if ip.strip()]
             assert bound_ips == ["127.0.0.1"], f"Port 9443 listener must bind exclusively to 127.0.0.1, got: {bound_ips}"
+
+            # 3. Verify TLS handshake succeeds with root_crt
+            import httpx
+            with httpx.Client(verify=str(root_crt), timeout=2.0) as client:
+                try:
+                    client.get("https://127.0.0.1:9443/api/v1/health")
+                except httpx.HTTPStatusError:
+                    pass  # 502 Bad Gateway is expected if FastAPI upstream is not running, TLS handshake succeeded!
 
             # 4. Strict TLS verification: without root_crt, verification MUST fail
             with pytest.raises(Exception):
