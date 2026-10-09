@@ -1,47 +1,38 @@
 {
 	# ==============================================================================
-	# AI VOICE STUDIO — PHASE 5B-2 LAN GATEWAY CONFIGURATION TEMPLATE
+	# AI VOICE STUDIO — PHASE 5B-2 HARDENED LAN GATEWAY TEMPLATE
 	# ==============================================================================
-	# STATUS: DEPLOYMENT TEMPLATE ONLY — NOT ACTIVE ON WORKSTATION
+	# STATUS: UNEXECUTED DEPLOYMENT TEMPLATE ONLY — NOT ACTIVE ON WORKSTATION
 	#
-	# IMPORTANT GOVERNANCE & SECURITY NOTICE:
-	# 1. This configuration is for controlled multi-user LAN operation.
-	# 2. DO NOT bind to 0.0.0.0. Bind EXCLUSIVELY to the designated workstation LAN IP.
-	# 3. Environment variable {$LAN_IP} must be set prior to launch (e.g. 192.168.1.50).
-	# 4. Windows Firewall and LAN exposure remain BLOCKED until explicit PO authorization.
-	# 5. Root CA must NOT be installed into Windows machine store without enterprise policy.
+	# GOVERNANCE & SECURITY HARDENING:
+	# 1. Strictly HTTPS-Only: No HTTP 8080 listener is opened for the initial rollout.
+	# 2. Fail-Closed Default: If {$LAN_IP} is unset, binds safely to 127.0.0.1 loopback.
+	# 3. Explicit TLS Identity: Uses fixed internal TLS authority; on_demand is REMOVED.
+	# 4. Strict Network Access: Only approved studio subnet/devices allowed.
+	#    Generic RFC1918 wide ranges (10.0.0.0/8, 172.16.0.0/12) are NOT trusted.
+	# 5. OS Trust Protection: skip_install_trust prevents system root store modification.
+	# 6. Actual LAN Activation: REMAINS BLOCKED pending Product Owner authorization.
 	# ==============================================================================
 
-	# Disable administrative API socket (Attack surface minimization)
+	# Disable administrative API socket (Attack surface elimination)
 	admin off
 
-	# Enable automatic HTTP to HTTPS redirection on custom ports
+	# Disable automatic redirects (Single HTTPS port deployment)
 	auto_https disable_redirects
 
-	# Prevent Caddy from attempting to install CA certificates into OS/Browser system stores
+	# Prevent Caddy from attempting to install CA certificates into Windows OS / Browser trust stores
 	skip_install_trust
 }
 
 # ------------------------------------------------------------------------------
-# HTTP -> HTTPS REDIRECT LISTENER (LAN EXPLICIT BINDING)
+# HARDENED HTTPS LAN GATEWAY (TLS TERMINATION & PROXYING ONLY)
 # ------------------------------------------------------------------------------
-http://{$LAN_IP:127.0.0.1}:8080 {
+https://{$LAN_HOSTNAME:studio.local}:9443, https://{$LAN_IP:127.0.0.1}:9443 {
+	# Explicit IP binding — Fail-closed to 127.0.0.1 if LAN_IP is undefined
 	bind {$LAN_IP:127.0.0.1}
 
-	# Redirect all plaintext HTTP traffic to hardened TLS endpoint
-	redir https://{host}:9443{uri} permanent
-}
-
-# ------------------------------------------------------------------------------
-# HTTPS SECURE LAN GATEWAY (TLS TERMINATION & PROXYING)
-# ------------------------------------------------------------------------------
-https://{$LAN_IP:127.0.0.1}:9443 {
-	bind {$LAN_IP:127.0.0.1}
-
-	# Automatic Internal TLS with dynamic Subject Alternative Name (SAN) for LAN IP
-	tls internal {
-		on_demand
-	}
+	# Explicit Internal TLS (Fixed SAN matching LAN Hostname & IP; NO on_demand)
+	tls internal
 
 	# Production Edge Security Headers (OWASP Top 10 Aligned)
 	header {
@@ -54,26 +45,27 @@ https://{$LAN_IP:127.0.0.1}:9443 {
 		-Server
 	}
 
-	# Trusted LAN Subnet Isolation & Access Control
-	# Rejects requests originating from untrusted public or alien networks
-	@trusted_lan {
-		remote_ip 127.0.0.1/32 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
+	# Approved Studio Subnet & Client Device Access Control
+	# Strictly limits access to the designated studio subnet (default: 192.168.1.0/24)
+	# All untrusted, alien, or public IPs are rejected immediately with 403 Forbidden
+	@trusted_studio_clients {
+		remote_ip 127.0.0.1/32 {$STUDIO_APPROVED_SUBNET:192.168.1.0/24}
 	}
-	@untrusted_client not remote_ip 127.0.0.1/32 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16
+	@untrusted_studio_clients not remote_ip 127.0.0.1/32 {$STUDIO_APPROVED_SUBNET:192.168.1.0/24}
 
-	handle @untrusted_client {
-		respond "Access Denied: Untrusted Network Origin" 403 {
+	handle @untrusted_studio_clients {
+		respond "Access Denied: Client IP not in approved studio network" 403 {
 			close
 		}
 	}
 
 	# --------------------------------------------------------------------------
-	# Real-Time Server-Sent Events (SSE) Route
-	# Mandatory: flush_interval -1 to prevent Caddy / proxy response buffering
+	# Real-Time Server-Sent Events (SSE) Streaming Route
+	# Mandatory: flush_interval -1 prevents proxy buffering of live audio progress
 	# --------------------------------------------------------------------------
 	@sse_endpoints path /api/v1/jobs/*/events
 	handle @sse_endpoints {
-		reverse_proxy 127.0.0.1:8000 {
+		reverse_proxy 127.0.0.1:{$BACKEND_PORT:8765} {
 			header_up Host {upstream_hostport}
 			header_up X-Real-IP {remote_host}
 			header_up X-Forwarded-For {remote_host}
@@ -83,10 +75,10 @@ https://{$LAN_IP:127.0.0.1}:9443 {
 	}
 
 	# --------------------------------------------------------------------------
-	# Core Application & API Proxy to FastAPI / Uvicorn Backend
+	# Core Application & API Proxy to FastAPI Backend (Uvicorn)
 	# --------------------------------------------------------------------------
 	handle {
-		reverse_proxy 127.0.0.1:8000 {
+		reverse_proxy 127.0.0.1:{$BACKEND_PORT:8765} {
 			header_up Host {upstream_hostport}
 			header_up X-Real-IP {remote_host}
 			header_up X-Forwarded-For {remote_host}

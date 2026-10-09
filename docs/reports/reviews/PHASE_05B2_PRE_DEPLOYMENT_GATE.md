@@ -234,15 +234,13 @@ flowchart TD
 
 Trong trường hợp có bất kỳ sự cố kết nối, xung đột cổng, lỗi binary hoặc yêu cầu dừng khẩn cấp:
 
-### Bước 1: Dừng ngay lập tức tiến trình Caddy
-Mở PowerShell và chạy lệnh:
+### Bước 1: Dừng tiến trình Caddy Reverse Proxy
 ```powershell
 # Dừng tiến trình caddy đang chạy
 Get-Process -Name caddy -ErrorAction SilentlyContinue | Stop-Process -Force
 
-# Xác nhận cổng 9443 và 8080 đã được giải phóng hoàn toàn
+# Xác nhận cổng 9443 đã được giải phóng hoàn toàn
 Get-NetTCPConnection -LocalPort 9443 -ErrorAction SilentlyContinue
-Get-NetTCPConnection -LocalPort 8080 -ErrorAction SilentlyContinue
 ```
 
 ### Bước 2: Hạ cấp phiên bản Binary Caddy về v2.9.1 (Nếu nghi ngờ lỗi binary v2.11.7)
@@ -252,26 +250,22 @@ Copy-Item -Path "infra\caddy\caddy_v2.9.1.exe" -Destination "infra\caddy\caddy.e
 ```
 
 ### Bước 3: Khôi phục cấu hình Gateway về Localhost Staging thuần túy
-Đảm bảo sử dụng file cấu hình gốc [infra/caddy/Caddyfile](file:///d:/C/Dev/du%20an/TTS/infra/caddy/Caddyfile):
+Sử dụng lại file cấu hình gốc [infra/caddy/Caddyfile](file:///d:/C/Dev/du%20an/TTS/infra/caddy/Caddyfile):
 ```powershell
 .\infra\caddy\caddy.exe validate --config "infra\caddy\Caddyfile"
+.\infra\caddy\caddy.exe run --config "infra\caddy\Caddyfile"
 ```
 
-### Bước 4: Khôi phục cơ sở dữ liệu từ bản sao lưu đã kiểm toán (Nếu nghi ngờ hỏng dữ liệu)
+### Bước 4: Đóng cổng tường lửa Windows (Thu hồi quyền truy cập mạng ngoài)
 ```powershell
-# 1. Dừng backend server
-# 2. Khôi phục file database từ bản sao lưu verified
-Copy-Item -Path "D:\AIVoiceStudioData\backups\studio_db_online_backup_verified_20261009_073916.db" -Destination "D:\AIVoiceStudioData\studio.db" -Force
-
-# 3. Kiểm tra tính toàn vẹn sau khi khôi phục
-python -c "import sqlite3; conn = sqlite3.connect(r'D:\AIVoiceStudioData\studio.db'); cur = conn.cursor(); cur.execute('PRAGMA integrity_check'); print('Integrity:', cur.fetchall())"
+Remove-NetFirewallRule -DisplayName "AI Voice Studio LAN HTTPS Gateway (Port 9443)" -ErrorAction SilentlyContinue
 ```
 
-### Bước 5: Đóng cổng tường lửa Windows (Nếu đã vô tình mở)
-```powershell
-Remove-NetFirewallRule -DisplayName "AI Voice Studio LAN Gateway (Port 9443)" -ErrorAction SilentlyContinue
-Remove-NetFirewallRule -DisplayName "AI Voice Studio HTTP Redirect (Port 8080)" -ErrorAction SilentlyContinue
-```
+### Bước 5: Bảo tồn Dữ liệu & Phân định Quy trình Phục hồi Thảm họa (P0 Core Principle)
+> [!IMPORTANT]
+> **NGUYÊN TẮC BẢO TOÀN DỮ LIỆU TUYỆT ĐỐI (NON-DESTRUCTIVE ROLLBACK):**
+> 1. **Quy trình Hủy bỏ Gateway (Mạng):** **TUYỆT ĐỐI KHÔNG BAO GIỜ** tự động khôi phục cơ sở dữ liệu `studio.db`. Toàn bộ dữ liệu SQLite hiện hành và toàn bộ file âm thanh (`artifacts`, `projects`, `exports`) phải được giữ nguyên vẹn 100%.
+> 2. **Quy trình Phục hồi Thảm họa Dữ liệu (Disaster Recovery):** Chỉ được thực hiện khi có **văn bản phê duyệt tường minh từ Product Owner** và phát hiện hỏng hóc cơ sở dữ liệu vật lý. Bắt buộc phải thử nghiệm khôi phục vào thư mục tạm thời (disposable sandbox) trước khi tiến hành, xác định rõ cửa sổ mất mát dữ liệu (data loss window) và không được tự ý ghi đè dữ liệu production khi chỉ gặp sự cố mạng/gateway.
 
 ---
 
