@@ -1,5 +1,30 @@
 # Documentation changelog
 
+## 2026-10-09 — Phase 5A Release Gate R1: Fair-Share Correctness, Atomic Quotas & Multi-User Security (Acceptance PASS)
+
+- **Điều Phối Công Bằng Đa Tầng & Chống Bỏ Đói (4-Tier Anti-Starvation Fair-Share Scheduling):**
+  - Khắc phục triệt để nguy cơ starvation khi phần cứng chỉ có 1 GPU slot (`max_gpu_slots = 1`): Thay thế cơ chế đếm in-flight tức thời bằng bảng trạng thái bền vững `user_scheduling_states` ghi nhận `last_dispatched_at` theo từng loại tài nguyên.
+  - Thuật toán 4 tầng trong `DurableQueueService.claim_next_job`: Tầng 1 (Head-of-Line Priority Precedence: `-c.priority`), Tầng 2 (In-flight burden), Tầng 3 (Persistent Anti-starvation round-robin: `last_dispatched_at ASC`), Tầng 4 (FIFO: `c.queued_at ASC`).
+  - Đã xác thực thực tế: Người dùng A nộp 25 job, Người dùng B nộp 1 job $\to$ điều phối xen kẽ A1 $\to$ B1 $\to$ A2, hoàn toàn không bị kẹt.
+- **Hạn Ngạch Lưu Trữ Nguyên Tử 2 Pha (Atomic Two-Phase Storage Quota Reservation):**
+  - Khắc phục nguy cơ over-commit do đua tranh (race condition): Triển khai bảng `storage_reservations` và quy trình 2 pha trong `UserQuotaService` (`reserve_capacity` $\to$ `commit_reservation` / `release_reservation`).
+  - Tích hợp vòng đời reservation tự động trên `submit_speech_job`, `complete_job`, `fail_job`, `cancel_job`, `upload_reference_audio`, và `export_project`.
+  - Đã xác thực thực tế: 2 luồng đồng thời 80MB trên quota 100MB $\to$ đúng 1 luồng thành công, 1 luồng nhận HTTP 413, 0 bytes over-commit.
+- **Bảo Vệ Đăng Nhập & Thu Hồi Phiên Tức Thì (Session Invalidation & Brute-Force Scoping):**
+  - Bổ sung `users.token_version`. Đổi mật khẩu lập tức tăng `token_version`, vô hiệu hóa toàn bộ token cũ với HTTP 401 `TOKEN_REVOKED`.
+  - Giới hạn khóa brute-force theo cặp `(ip_address, username)`: Dò quét sai 5 lần một tài khoản không làm ảnh hưởng tài khoản khác trên cùng IP (chống Collateral DoS).
+- **Tương Thích Kịch Bản Dài Tập (Bounded Progressive Batch Submission):**
+  - `ProjectService.render_batch` và `reconcile_project_segments` hỗ trợ nộp batch vượt ngưỡng 25 segment bằng cơ chế nạp lũy tiến tự động (tối đa 25 active jobs, các segment còn lại chuyển sang `"pending"` và được tự động đưa vào hàng đợi khi slot giải phóng), không phát sinh HTTP 429.
+- **Di Trú Cơ Sở Dữ Liệu An Toàn & Chuẩn Hóa Sao Lưu SQLite:**
+  - Áp dụng migration `alembic/versions/20261009_0006_phase5a_gate_r1_hardening.py` (`user_scheduling_states`, `storage_reservations`, `users.token_version`).
+  - Chuẩn hóa quy trình sao lưu bằng SQLite Online Backup API CLI: Tệp sao lưu `D:\AIVoiceStudioData\backups\studio_20261009_011545.db` (405,504 bytes, SHA-256: `660e25e384fd2a083991d12c809b799e34a033a314101227eb123bcbdf88f280`, `PRAGMA integrity_check = ok`, đủ 15 bảng).
+  - Đánh dấu bản sao lưu cũ bằng PowerShell `Copy-Item` là `UNVERIFIED` và hoàn thành kiểm thử phục hồi độc lập trên DB tạm thời.
+- **Kiểm Thử Toàn Diện & Biên Dịch Giao Diện:**
+  - 7/7 bài kiểm thử tương tranh và bảo mật Release Gate R1 PASSED.
+  - 85/85 bài kiểm thử hồi quy toàn repository PASSED 100% (259s).
+  - 4/4 bài kiểm thử trình duyệt Chrome E2E Playwright PASSED (54.96s).
+  - Frontend production build hoàn thành hoàn hảo (0 lỗi TypeScript).
+
 ## 2026-10-09 — Phase 5A: Multi-User Core Hardening & Fair Resource Scheduling (Gate PASS)
 
 - **Ma Trận Phân Quyền & Kiểm Soát Truy Cập Tiêu Cực (RBAC & Negative Authorization):**

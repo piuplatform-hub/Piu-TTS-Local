@@ -33,16 +33,29 @@ async def upload_reference_audio(
     file_bytes = await file.read()
     filename = file.filename or "reference.wav"
 
-    # Enforce user storage quota before persisting audio asset
-    await UserQuotaService.assert_quota_available(db, current_user.id, len(file_bytes))
-
-    record = await AssetService.upload_reference_audio(
+    # Transactionally reserve storage capacity before persisting audio asset
+    res_rec = await UserQuotaService.reserve_capacity(
         db=db,
-        user=current_user,
-        file_bytes=file_bytes,
-        original_filename=filename,
-        voice_use_consent=voice_use_consent,
+        user=current_user.id,
+        estimated_bytes=len(file_bytes),
+        reservation_type="reference_asset",
+        timeout_seconds=300,
     )
+
+    try:
+        record = await AssetService.upload_reference_audio(
+            db=db,
+            user=current_user,
+            file_bytes=file_bytes,
+            original_filename=filename,
+            voice_use_consent=voice_use_consent,
+        )
+        await UserQuotaService.commit_reservation(db, res_rec.id, record.file_size_bytes)
+        await db.commit()
+    except Exception:
+        await UserQuotaService.release_reservation(db, res_rec.id)
+        await db.commit()
+        raise
 
     asset_resp = ReferenceAssetResponse(
         id=record.id,

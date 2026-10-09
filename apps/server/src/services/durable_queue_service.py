@@ -17,6 +17,7 @@ from ..models.asset import ReferenceAssetRecord
 from ..models.engine import EngineRecord
 from ..models.job import JobRecord
 from ..models.user import User
+from ..models.scheduling_state import UserSchedulingStateRecord
 from ..schemas.job import TTSJobSubmitRequest
 from .event_service import event_service
 from .job_state_machine import JobStateMachine, JobState
@@ -284,11 +285,19 @@ class DurableQueueService:
                 code="TOO_MANY_OUTSTANDING_JOBS",
             )
 
-        # B. User Storage Quota Check (ensure user has not exhausted quota before queuing new inference)
-        await UserQuotaService.assert_quota_available(db, current_user.id, expected_additional_bytes=0)
+        # B. User Storage Quota Check & Atomic Capacity Reservation
+        job_id = str(uuid.uuid4())
+        estimated_output_bytes = max(1024 * 1024, len(req.text) * 10000)
+        await UserQuotaService.reserve_capacity(
+            db=db,
+            user=current_user.id,
+            estimated_bytes=estimated_output_bytes,
+            reservation_type="speech_job",
+            job_id=job_id,
+            timeout_seconds=3600,
+        )
 
         # 5. Enqueue into SQLite WAL
-        job_id = str(uuid.uuid4())
         job = JobRecord(
             id=job_id,
             user_id=current_user.id,
@@ -352,10 +361,10 @@ class DurableQueueService:
             if not candidates:
                 return None
 
-            # 2. Fair Resource Scheduling:
-            # Query active (PREPARING, RUNNING) job count per user among the candidate set
+            # 2. Fair Resource Scheduling (Persistent State Anti-Starvation & Head-of-Line Priority Precedence):
             user_ids = {c.user_id for c in candidates if c.user_id}
             user_active_counts: Dict[str, int] = {uid: 0 for uid in user_ids}
+            user_last_dispatched: Dict[Tuple[str, str], datetime] = {}
 
             if user_ids:
                 active_counts_stmt = (
@@ -370,18 +379,36 @@ class DurableQueueService:
                 for uid, count in counts_res.all():
                     user_active_counts[uid] = count
 
+                sched_states_stmt = select(UserSchedulingStateRecord).where(
+                    UserSchedulingStateRecord.user_id.in_(list(user_ids))
+                )
+                sched_states_res = await session.execute(sched_states_stmt)
+                for state in sched_states_res.scalars().all():
+                    user_last_dispatched[(state.user_id, state.resource_type)] = state.last_dispatched_at
+
+            epoch_min = datetime.min.replace(tzinfo=timezone.utc)
+
             # Sort candidates fairly:
-            # Tier 1: Higher priority preempts lower priority (-c.priority)
-            # Tier 2: Within same priority, least active user first (user_active_counts)
-            # Tier 3: FIFO within same active count (c.queued_at)
-            sorted_candidates = sorted(
-                candidates,
-                key=lambda c: (
+            # Tier 1: Higher priority precedence (-c.priority)
+            # Tier 2: Within same priority, least active user first across in-flight jobs (user_active_counts)
+            # Tier 3: Within same active count, anti-starvation fair-share per resource (least recently dispatched user first)
+            # Tier 4: FIFO within same user (c.queued_at)
+            def candidate_sort_key(c: JobRecord):
+                res_t = c.resource_type or "cpu"
+                last_disp = user_last_dispatched.get((c.user_id, res_t)) or epoch_min
+                if last_disp.tzinfo is None:
+                    last_disp = last_disp.replace(tzinfo=timezone.utc)
+                q_at = c.queued_at or now
+                if q_at.tzinfo is None:
+                    q_at = q_at.replace(tzinfo=timezone.utc)
+                return (
                     -c.priority,
                     user_active_counts.get(c.user_id, 0),
-                    c.queued_at or now,
+                    last_disp,
+                    q_at,
                 )
-            )
+
+            sorted_candidates = sorted(candidates, key=candidate_sort_key)
 
             for candidate in sorted_candidates:
                 res_type = candidate.resource_type or "cpu"
@@ -420,6 +447,28 @@ class DurableQueueService:
                         # Rollback db claim if slot acquisition failed (defensive)
                         await session.rollback()
                         continue
+
+                    # Update persistent user scheduling state for fair-share dispatch accounting
+                    sched_stmt = select(UserSchedulingStateRecord).where(
+                        UserSchedulingStateRecord.user_id == candidate.user_id,
+                        UserSchedulingStateRecord.resource_type == res_type,
+                    )
+                    sched_res = await session.execute(sched_stmt)
+                    sched_rec = sched_res.scalar_one_or_none()
+                    if not sched_rec:
+                        sched_rec = UserSchedulingStateRecord(
+                            user_id=candidate.user_id,
+                            resource_type=res_type,
+                            last_dispatched_at=now,
+                            dispatched_count=1,
+                            created_at=now,
+                            updated_at=now,
+                        )
+                        session.add(sched_rec)
+                    else:
+                        sched_rec.last_dispatched_at = now
+                        sched_rec.dispatched_count += 1
+                        sched_rec.updated_at = now
 
                     await session.commit()
 
@@ -573,6 +622,11 @@ class DurableQueueService:
             job.waiting_reason = None
             job.lease_expires_at = None
 
+            from ..models.artifact import ArtifactRecord
+            art_rec = await session.get(ArtifactRecord, artifact_id)
+            actual_bytes = art_rec.file_size_bytes if art_rec else 0
+            await UserQuotaService.commit_job_reservation(session, job.id, actual_bytes)
+
             await resource_manager.release_all(job.id)
             await session.commit()
 
@@ -654,6 +708,8 @@ class DurableQueueService:
                 job.locked_by = None
                 job.lease_expires_at = None
                 job.waiting_reason = None
+
+                await UserQuotaService.release_job_reservation(session, job.id)
                 await session.commit()
 
                 await event_service.emit_event(
@@ -714,6 +770,7 @@ class DurableQueueService:
             job.lease_expires_at = None
 
             await resource_manager.release_all(job.id)
+            await UserQuotaService.release_job_reservation(session, job.id)
             await session.commit()
 
             await event_service.emit_event(

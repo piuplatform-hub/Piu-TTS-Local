@@ -17,4 +17,5 @@ class User(Base):
     role = Column(String(20), nullable=False, default="editor")  # admin, editor, viewer
     is_active = Column(Boolean, default=True, nullable=False)
     storage_quota_mb = Column(Integer, nullable=True, default=None)  # None = use global default
+    token_version = Column(Integer, nullable=False, default=1)  # Incremented on password change to invalidate old sessions
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)

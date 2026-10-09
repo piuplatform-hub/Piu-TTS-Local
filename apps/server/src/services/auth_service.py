@@ -179,6 +179,8 @@ class AuthService:
             )
 
         user.password_hash = hash_password(new_password)
+        # Invalidate existing JWT sessions across all devices
+        user.token_version = (getattr(user, "token_version", 1) or 1) + 1
         await db.commit()
 
 
@@ -197,6 +199,7 @@ async def get_current_user(
     try:
         payload = decode_access_token(credentials.credentials)
         user_id = payload.get("sub")
+        token_ver = payload.get("token_version")
         if not user_id:
             raise ValueError("Token missing subject claim")
     except Exception:
@@ -217,6 +220,16 @@ async def get_current_user(
             title="User Inactive",
             detail="User not found or deactivated.",
             code="USER_INACTIVE",
+        )
+
+    # Invalidate tokens issued prior to password change
+    user_token_ver = getattr(user, "token_version", 1) or 1
+    if token_ver is not None and token_ver != user_token_ver:
+        raise AppException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            title="Session Revoked",
+            detail="Password has been changed. Please log in again with your new credentials.",
+            code="TOKEN_REVOKED",
         )
 
     return user

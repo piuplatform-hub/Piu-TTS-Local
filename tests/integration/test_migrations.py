@@ -35,7 +35,8 @@ def test_alembic_fresh_database_upgrade():
 
         for expected in [
             "alembic_version", "users", "engines", "artifacts", "jobs", "job_events", 
-            "reference_assets", "projects", "characters", "script_segments", "segment_revisions", "project_exports"
+            "reference_assets", "projects", "characters", "script_segments", "segment_revisions", "project_exports",
+            "login_attempts", "user_scheduling_states", "storage_reservations"
         ]:
             assert expected in tables, f"Table {expected} was not created by Alembic migration"
 
@@ -82,7 +83,7 @@ def test_alembic_upgrade_preexisting_db_without_data_loss():
         conn.close()
 
         assert user_row == ("legacy_admin", "admin"), "Existing user record was lost during migration"
-        assert version_row is not None and version_row[0] == "20261009_0005", "Alembic version was not recorded"
+        assert version_row is not None and version_row[0] == "20261009_0006", "Alembic version was not recorded"
 
 
 def test_foreign_key_constraint_enforcement():

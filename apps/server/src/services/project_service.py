@@ -22,8 +22,10 @@ from apps.server.src.models.export import ProjectExportRecord
 from apps.server.src.models.job import JobRecord
 from apps.server.src.models.artifact import ArtifactRecord
 from apps.server.src.models.user import User
+from apps.server.src.config import settings
 from apps.server.src.schemas.job import TTSJobSubmitRequest
 from apps.server.src.services.job_service import JobService
+from apps.server.src.services.job_state_machine import JobState
 from apps.server.src.services.text_segmenter import TextSegmenter
 from apps.server.src.schemas.project import (
     ProjectCreate, ProjectUpdate, CharacterCreate, CharacterUpdate,
@@ -505,21 +507,39 @@ class ProjectService:
         if not targets:
             return []
 
+        # Bounded Progressive Submission Strategy:
+        # Check current active/queued jobs for current_user to respect MAX_OUTSTANDING_JOBS_PER_USER
+        active_stmt = select(func.count(JobRecord.id)).where(
+            JobRecord.user_id == current_user.id,
+            JobRecord.status.in_([JobState.QUEUED.value, JobState.PREPARING.value, JobState.RUNNING.value]),
+        )
+        active_res = await session.execute(active_stmt)
+        outstanding_count = active_res.scalar() or 0
+        available_slots = max(0, settings.MAX_OUTSTANDING_JOBS_PER_USER - outstanding_count)
+
         rendered = []
         for seg in targets:
-            job_req = TTSJobSubmitRequest(
-                engine_id=seg.engine_id,
-                text=seg.text,
-                language=seg.language,
-                voice_id=seg.voice_id,
-                parameters=seg.parameters,
-                priority=1,
-            )
-            job = await JobService.submit_speech_job(session, job_req, current_user)
-            seg.last_job_id = job.id
-            seg.status = "queued"
-            seg.updated_at = datetime.now(timezone.utc)
-            rendered.append((seg, job))
+            if available_slots > 0:
+                job_req = TTSJobSubmitRequest(
+                    engine_id=seg.engine_id,
+                    text=seg.text,
+                    language=seg.language,
+                    voice_id=seg.voice_id,
+                    parameters=seg.parameters,
+                    priority=1,
+                )
+                job = await JobService.submit_speech_job(session, job_req, current_user)
+                seg.last_job_id = job.id
+                seg.status = "queued"
+                seg.updated_at = datetime.now(timezone.utc)
+                rendered.append((seg, job))
+                available_slots -= 1
+            else:
+                # Mark excess segments as pending to be progressively pumped as slots free up
+                seg.status = "pending"
+                seg.last_job_id = None
+                seg.updated_at = datetime.now(timezone.utc)
+                rendered.append((seg, None))
 
         await session.commit()
         return rendered
@@ -630,6 +650,33 @@ class ProjectService:
                 if is_matching_job and seg.status != "rendering":
                     seg.status = "rendering"
                     seg.updated_at = datetime.now(timezone.utc)
+        # Progressive Pump for Pending Segments (Bounded Batch Processing):
+        pending_segs = [s for s in project.segments if s.status == "pending"]
+        if pending_segs:
+            # Query in-flight jobs count for this user
+            active_stmt = select(func.count(JobRecord.id)).where(
+                JobRecord.user_id == current_user.id,
+                JobRecord.status.in_([JobState.QUEUED.value, JobState.PREPARING.value, JobState.RUNNING.value]),
+            )
+            active_res = await session.execute(active_stmt)
+            curr_active = active_res.scalar() or 0
+            free_slots = max(0, settings.MAX_OUTSTANDING_JOBS_PER_USER - curr_active)
+
+            if free_slots > 0:
+                pending_sorted = sorted(pending_segs, key=lambda s: s.sequence_order)
+                for seg_to_queue in pending_sorted[:free_slots]:
+                    job_req = TTSJobSubmitRequest(
+                        engine_id=seg_to_queue.engine_id,
+                        text=seg_to_queue.text,
+                        language=seg_to_queue.language,
+                        voice_id=seg_to_queue.voice_id,
+                        parameters=seg_to_queue.parameters,
+                        priority=1,
+                    )
+                    job = await JobService.submit_speech_job(session, job_req, current_user)
+                    seg_to_queue.last_job_id = job.id
+                    seg_to_queue.status = "queued"
+                    seg_to_queue.updated_at = datetime.now(timezone.utc)
                     changed = True
 
         if changed:

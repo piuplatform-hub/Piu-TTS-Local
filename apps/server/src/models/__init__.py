@@ -8,6 +8,8 @@ from .character import CharacterRecord
 from .segment import ScriptSegmentRecord, SegmentRevisionRecord
 from .export import ProjectExportRecord
 from .login_attempt import LoginAttemptRecord
+from .scheduling_state import UserSchedulingStateRecord
+from .storage_reservation import StorageReservationRecord
 
 __all__ = [
     "User",
@@ -22,4 +24,6 @@ __all__ = [
     "SegmentRevisionRecord",
     "ProjectExportRecord",
     "LoginAttemptRecord",
+    "UserSchedulingStateRecord",
+    "StorageReservationRecord",
 ]

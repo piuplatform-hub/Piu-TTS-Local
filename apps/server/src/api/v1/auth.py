@@ -68,7 +68,12 @@ async def login(
     # Bound IP extraction: Only trust direct socket peer host, no arbitrary X-Forwarded-For
     client_ip = request.client.host if request.client and request.client.host else "127.0.0.1"
     user = await AuthService.authenticate_user(db, req.username, req.password, ip_address=client_ip)
-    token = create_access_token({"sub": user.id, "username": user.username, "role": user.role})
+    token = create_access_token({
+        "sub": user.id,
+        "username": user.username,
+        "role": user.role,
+        "token_version": getattr(user, "token_version", 1) or 1,
+    })
     return TokenResponse(
         access_token=token,
         token_type="bearer",
