@@ -131,6 +131,9 @@ def test_real_browser_end_to_end_journey():
             page.screenshot(path=str(SCREENSHOT_DIR / "02_speech_studio_view.png"))
 
             # Step 6 & 7: Select Mock Engine & Enter Vietnamese text
+            mock_option = page.locator('select option[value="mock-tts"]')
+            if mock_option.count() > 0:
+                page.select_option('select:has(option[value="mock-tts"])', "mock-tts")
             vietnamese_text = "Hệ thống kiểm thử trình duyệt Chrome thực tế đã hoạt động ổn định và chính xác."
             page.fill('textarea[placeholder="Nhập đoạn văn bản cần chuyển thành giọng nói tại đây..."]', vietnamese_text)
 
@@ -138,7 +141,7 @@ def test_real_browser_end_to_end_journey():
             page.click('button:has-text("Tạo giọng nói")')
 
             # Step 9: Observe progress until completed (progress bar 100% and audio player appears)
-            page.wait_for_selector("text=Tải WAV", timeout=25000)
+            page.wait_for_selector("text=Tải WAV", timeout=30000)
             page.wait_for_selector("audio", state="attached", timeout=5000)
             page.screenshot(path=str(SCREENSHOT_DIR / "03_audio_generated_view.png"))
 

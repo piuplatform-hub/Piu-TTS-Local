@@ -5,10 +5,11 @@
 -- DO NOT EXECUTE ON PRODUCTION UNTIL PRODUCT OWNER GATE A APPROVAL.
 -- ==============================================================================
 
-BEGIN TRANSACTION;
-
--- 1. Verify foreign key integrity before operation
+-- 1. Enable foreign key constraint enforcement before opening transaction
+-- (In SQLite, PRAGMA foreign_keys is a no-op inside an open transaction)
 PRAGMA foreign_keys = ON;
+
+BEGIN TRANSACTION;
 
 -- 2. Deactivate the 7 automated test accounts with known passwords
 --    and the 6 mock-seeded test accounts

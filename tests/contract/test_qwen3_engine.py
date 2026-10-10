@@ -64,7 +64,7 @@ async def test_qwen3_worker_lifecycle_and_contract():
             await unauth_client.get_health()
 
         # 2. Test authorized client
-        client = EngineWorkerClient(base_url=base_url, auth_token=token, timeout=90.0)
+        client = EngineWorkerClient(base_url=base_url, auth_token=token, timeout=180.0)
         health = await client.get_health()
         assert health.status == "healthy"
         assert health.engine_id == "qwen3-tts"

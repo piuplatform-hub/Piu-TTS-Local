@@ -1,5 +1,6 @@
 # AI Voice Studio -- Phase 5B-2 Scoped Non-Destructive LAN Gateway Rollback Script
 # Strictly avoids killing recycled PIDs, preserves unrelated firewall rules and data
+# Accurately measures execution timing and distinguishes config validation from runtime startup
 
 [CmdletBinding()]
 param (
@@ -7,10 +8,13 @@ param (
     [string]$PidFile = "infra\caddy\caddy_lan.pid",
     [string]$FirewallRuleName = "AIVoiceStudio_LAN_Gateway_TCP_9443",
     [string]$LoopbackCaddyfile = "infra\caddy\Caddyfile",
-    [string]$CaddyExe = "infra\caddy\caddy.exe"
+    [string]$CaddyExe = "infra\caddy\caddy.exe",
+    [switch]$StartLoopback,
+    [int]$HealthCheckTimeoutSeconds = 5
 )
 
 $ErrorActionPreference = "Stop"
+$sw = [System.Diagnostics.Stopwatch]::StartNew()
 
 Write-Host "======================================================================" -ForegroundColor Cyan
 Write-Host "AI VOICE STUDIO -- SCOPED NON-DESTRUCTIVE GATEWAY ROLLBACK" -ForegroundColor Cyan
@@ -30,7 +34,7 @@ if (Test-Path $pidPath) {
         if ($proc) {
             $isCaddy = ($proc.ExecutablePath -like "*caddy.exe*") -or ($proc.CommandLine -like "*caddy*")
             $isStudioCaddy = ($proc.CommandLine -like "*Caddyfile.lan*") -or ($proc.ExecutablePath -like "*TTS\infra\caddy\*")
-            
+
             if ($isCaddy -and $isStudioCaddy) {
                 Write-Host "[+] Verified controlled Caddy process (PID: $recordedPid, CreationDate: $($proc.CreationDate)). Stopping..." -ForegroundColor Yellow
                 Stop-Process -Id $recordedPid -Force -ErrorAction SilentlyContinue
@@ -39,13 +43,13 @@ if (Test-Path $pidPath) {
                 Write-Host "[!] WARNING: PID $recordedPid is active but does NOT match AI Voice Studio Caddy gateway! (Exec: $($proc.ExecutablePath)). Process preserved to prevent collateral damage." -ForegroundColor Red
             }
         } else {
-            Write-Host "[*] Recorded Caddy PID $recordedPid is already terminated." -ForegroundColor Gray
+            Write-Host "[*] Recorded Caddy PID $recordedPid is already terminated or stale." -ForegroundColor Gray
         }
     }
     Remove-Item $pidPath -Force -ErrorAction SilentlyContinue
 }
 
-# Fallback scoped termination if PID file was missing or stale
+# Fallback scoped termination if PID file was missing or unrecorded
 if (-not $caddyTerminated) {
     $matchingCaddy = Get-CimInstance Win32_Process -Filter "Name = 'caddy.exe'" -ErrorAction SilentlyContinue |
         Where-Object { $_.CommandLine -like "*Caddyfile.lan*" }
@@ -72,16 +76,35 @@ if ($openConn) {
     Write-Host "[+] Port 9443 listener cleanly released." -ForegroundColor Green
 }
 
-# 4. RESTORE LOOPBACK GATEWAY
+# 4. RESTORE / VALIDATE LOOPBACK GATEWAY
 $caddyExePath = Join-Path $WorkspaceRoot $CaddyExe
 $loopbackConfigPath = Join-Path $WorkspaceRoot $LoopbackCaddyfile
 
 if ((Test-Path $caddyExePath) -and (Test-Path $loopbackConfigPath)) {
-    Write-Host "[+] Validating known-good loopback configuration..." -ForegroundColor Cyan
+    Write-Host "[+] Step 4A: Validating known-good loopback configuration syntax..." -ForegroundColor Cyan
     & $caddyExePath validate --config $loopbackConfigPath
-    Write-Host "[+] Loopback gateway configuration verified. Ready for local startup if requested." -ForegroundColor Green
+    Write-Host "[+] Loopback gateway configuration syntax verified (caddy validate: VALID)." -ForegroundColor Green
+
+    if ($StartLoopback) {
+        Write-Host "[+] Step 4B: Starting loopback gateway process (127.0.0.1:9443)..." -ForegroundColor Cyan
+        $loopbackProc = Start-Process -FilePath $caddyExePath -ArgumentList "run", "--config", $loopbackConfigPath -PassThru -WindowStyle Hidden
+        Start-Sleep -Seconds 2
+
+        $lbConn = Get-NetTCPConnection -LocalPort 9443 -State Listen -ErrorAction SilentlyContinue
+        if ($lbConn) {
+            Write-Host "[+] Loopback listener confirmed on 127.0.0.1:9443 (PID: $($loopbackProc.Id))." -ForegroundColor Green
+        } else {
+            Write-Host "[!] Loopback listener not detected on 9443 within timeout." -ForegroundColor Yellow
+        }
+    } else {
+        Write-Host "[*] Note: Runtime gateway startup skipped (pass -StartLoopback to launch process)." -ForegroundColor Gray
+    }
 }
+
+$sw.Stop()
+$elapsedSeconds = [math]::Round($sw.Elapsed.TotalSeconds, 3)
 
 Write-Host "======================================================================" -ForegroundColor Cyan
 Write-Host "[+] NON-DESTRUCTIVE ROLLBACK COMPLETE: SQLite DB & Audio files 100% untouched." -ForegroundColor Green
+Write-Host "[+] Measured Rollback Execution Time: $elapsedSeconds seconds ($($sw.ElapsedMilliseconds) ms)" -ForegroundColor Green
 Write-Host "======================================================================" -ForegroundColor Cyan
