@@ -228,3 +228,7 @@ class TextSegmentResponse(BaseModel):
     total_chars: int
     segment_count: int
     segments: List[TextSegmentItem]
+
+
+class BatchRenderRequest(BaseModel):
+    segment_ids: Optional[List[str]] = None

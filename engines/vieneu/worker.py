@@ -225,10 +225,28 @@ class VieNeuWorkerHandler(BaseHTTPRequestHandler):
             params = body.get("parameters", {})
             ref_audio = params.get("ref_audio")
 
+            # Extract native control parameters with safe defaults
+            temperature = float(params.get("temperature", 0.8))
+            top_p = float(params.get("top_p", 0.95))
+            top_k = int(params.get("top_k", 25))
+            repetition_penalty = float(params.get("repetition_penalty", 1.2))
+            repetition_window = int(params.get("repetition_window", 50))
+            speed = float(params.get("speed", body.get("speed", 1.0)))
+            denoise = bool(params.get("denoise", True))
+
             try:
                 model = model_manager.get_model()
 
-                # Zero-shot voice cloning mode
+                infer_kwargs = {
+                    "text": text,
+                    "temperature": max(0.1, min(1.5, temperature)),
+                    "top_p": max(0.1, min(1.0, top_p)),
+                    "top_k": max(1, min(100, top_k)),
+                    "repetition_penalty": max(1.0, min(2.5, repetition_penalty)),
+                    "repetition_window": max(10, min(200, repetition_window)),
+                }
+
+                # Zero-shot voice cloning mode vs Preset voice mode
                 if ref_audio:
                     ref_path = Path(ref_audio).resolve()
                     if not ref_path.exists():
@@ -240,12 +258,29 @@ class VieNeuWorkerHandler(BaseHTTPRequestHandler):
                         )
                         return
 
-                    denoise = params.get("denoise", True)
-                    audio_array = model.infer(text=text, ref_audio=str(ref_path), denoise=denoise)
+                    infer_kwargs["ref_audio"] = str(ref_path)
+                    infer_kwargs["denoise"] = denoise
                 else:
-                    # Preset voice mode
-                    resolved_voice = VOICE_MAP.get(voice_id.lower() if voice_id else "", "Hải Đăng")
-                    audio_array = model.infer(text=text, voice=resolved_voice)
+                    if voice_id and voice_id.lower() not in VOICE_MAP:
+                        self._send_rfc9457_error(
+                            422,
+                            "Unsupported Voice",
+                            "UNSUPPORTED_VOICE",
+                            f"Voice '{voice_id}' is not supported by VieNeu-TTS.",
+                        )
+                        return
+                    resolved_voice = VOICE_MAP.get(voice_id.lower() if voice_id else "hai_dang", "Hải Đăng")
+                    infer_kwargs["voice"] = resolved_voice
+
+                audio_array = model.infer(**infer_kwargs)
+
+                # DSP Post-Processing: Pitch-preserving time stretch if speed != 1.0
+                if abs(speed - 1.0) > 0.02 and len(audio_array) > 0:
+                    try:
+                        import librosa
+                        audio_array = librosa.effects.time_stretch(audio_array, rate=float(speed))
+                    except Exception:
+                        pass
 
                 # Export to 16-bit PCM WAV in memory
                 buf = io.BytesIO()

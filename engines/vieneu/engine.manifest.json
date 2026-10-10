@@ -9,7 +9,8 @@
   "capabilities": [
     "text_to_speech",
     "voice_cloning",
-    "speaker_selection"
+    "speaker_selection",
+    "advanced_voice_controls"
   ],
   "supported_languages": [
     "vi"
@@ -35,7 +36,7 @@
       "minimum": 0.5,
       "maximum": 2.0,
       "default": 1.0,
-      "description": "Speech rate multiplier"
+      "description": "Speech rate multiplier (DSP time-stretch, pitch-preserving)"
     },
     "ref_audio": {
       "type": "string",
@@ -45,6 +46,41 @@
       "type": "boolean",
       "default": true,
       "description": "Denoise reference audio before extracting speaker embedding"
+    },
+    "temperature": {
+      "type": "number",
+      "minimum": 0.1,
+      "maximum": 1.5,
+      "default": 0.8,
+      "description": "Sampling temperature for vocal variety and expressiveness"
+    },
+    "top_p": {
+      "type": "number",
+      "minimum": 0.1,
+      "maximum": 1.0,
+      "default": 0.95,
+      "description": "Nucleus sampling probability threshold"
+    },
+    "top_k": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100,
+      "default": 25,
+      "description": "Top-K filtering limit for token generation"
+    },
+    "repetition_penalty": {
+      "type": "number",
+      "minimum": 1.0,
+      "maximum": 2.5,
+      "default": 1.2,
+      "description": "Repetition penalty factor to prevent syllable stuttering"
+    },
+    "repetition_window": {
+      "type": "integer",
+      "minimum": 10,
+      "maximum": 200,
+      "default": 50,
+      "description": "Token window size for repetition penalty"
     }
   }
 }

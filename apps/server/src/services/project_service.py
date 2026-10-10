@@ -226,16 +226,38 @@ class ProjectService:
     async def add_segment(cls, session: AsyncSession, user_id: str, project_id: str, req: SegmentCreate) -> ScriptSegmentRecord:
         project = await cls.get_project_record(session, project_id, user_id)
 
-        text_hash = compute_segment_hash(req.text, req.engine_id, req.voice_id, req.parameters)
+        engine_id = req.engine_id
+        voice_id = req.voice_id
+        language = req.language
+        parameters = dict(req.parameters or {})
+
+        if req.character_id:
+            char_stmt = select(CharacterRecord).where(
+                CharacterRecord.id == req.character_id,
+                CharacterRecord.project_id == project_id,
+            )
+            char_res = await session.execute(char_stmt)
+            char_obj = char_res.scalar_one_or_none()
+            if char_obj:
+                if not voice_id or voice_id in ("hai_dang", "default"):
+                    voice_id = char_obj.voice_id
+                if not engine_id or engine_id in ("mock-tts", "vieneu-tts"):
+                    engine_id = char_obj.engine_id
+                if not language:
+                    language = char_obj.language
+                if not parameters:
+                    parameters = dict(char_obj.parameters or {})
+
+        text_hash = compute_segment_hash(req.text, engine_id, voice_id, parameters)
         seg = ScriptSegmentRecord(
             project_id=project.id,
             character_id=req.character_id,
             sequence_order=req.sequence_order,
             text=req.text.strip(),
-            language=req.language,
-            engine_id=req.engine_id,
-            voice_id=req.voice_id,
-            parameters=req.parameters,
+            language=language,
+            engine_id=engine_id,
+            voice_id=voice_id,
+            parameters=parameters,
             pause_after_ms=req.pause_after_ms,
             status="draft",
             text_hash=text_hash,
@@ -260,7 +282,24 @@ class ProjectService:
 
         old_hash = seg.text_hash
         if req.character_id is not None:
-            seg.character_id = req.character_id if req.character_id != "" else None
+            new_char_id = req.character_id if req.character_id != "" else None
+            seg.character_id = new_char_id
+            if new_char_id:
+                char_stmt = select(CharacterRecord).where(
+                    CharacterRecord.id == new_char_id,
+                    CharacterRecord.project_id == project_id,
+                )
+                char_res = await session.execute(char_stmt)
+                char_obj = char_res.scalar_one_or_none()
+                if char_obj:
+                    if req.engine_id is None:
+                        seg.engine_id = char_obj.engine_id
+                    if req.voice_id is None:
+                        seg.voice_id = char_obj.voice_id
+                    if req.language is None:
+                        seg.language = char_obj.language
+                    if req.parameters is None:
+                        seg.parameters = dict(char_obj.parameters or {})
         if req.sequence_order is not None:
             seg.sequence_order = req.sequence_order
         if req.text is not None:
@@ -466,13 +505,37 @@ class ProjectService:
         if not seg:
             raise HTTPException(status_code=404, detail="SEGMENT_NOT_FOUND")
 
+        # Resolve effective character parameters & settings
+        effective_params = dict(seg.parameters or {})
+        effective_engine_id = seg.engine_id
+        effective_voice_id = seg.voice_id
+        effective_language = seg.language or "vi"
+
+        if seg.character_id:
+            stmt_char = select(CharacterRecord).where(
+                CharacterRecord.id == seg.character_id,
+                CharacterRecord.project_id == project_id,
+            )
+            res_char = await session.execute(stmt_char)
+            char = res_char.scalar_one_or_none()
+            if char:
+                merged_params = dict(char.parameters or {})
+                merged_params.update(effective_params)
+                effective_params = merged_params
+                if not effective_voice_id:
+                    effective_voice_id = char.voice_id
+                if not effective_engine_id:
+                    effective_engine_id = char.engine_id
+                if not effective_language and char.language:
+                    effective_language = char.language
+
         # Submit speech synthesis job via JobService
         job_req = TTSJobSubmitRequest(
-            engine_id=seg.engine_id,
+            engine_id=effective_engine_id,
             text=seg.text,
-            language=seg.language,
-            voice_id=seg.voice_id,
-            parameters=seg.parameters,
+            language=effective_language,
+            voice_id=effective_voice_id,
+            parameters=effective_params,
             priority=1,
         )
         job = await JobService.submit_speech_job(session, job_req, current_user)
@@ -526,15 +589,37 @@ class ProjectService:
         outstanding_count = active_res.scalar() or 0
         available_slots = max(0, settings.MAX_OUTSTANDING_JOBS_PER_USER - outstanding_count)
 
+        # Cache project characters for fast parameter resolution
+        stmt_chars = select(CharacterRecord).where(CharacterRecord.project_id == project_id)
+        res_chars = await session.execute(stmt_chars)
+        chars_map = {c.id: c for c in res_chars.scalars().all()}
+
         rendered = []
         for seg in targets:
             if available_slots > 0:
+                eff_params = dict(seg.parameters or {})
+                eff_engine_id = seg.engine_id
+                eff_voice_id = seg.voice_id
+                eff_lang = seg.language or "vi"
+
+                if seg.character_id and seg.character_id in chars_map:
+                    ch = chars_map[seg.character_id]
+                    merged = dict(ch.parameters or {})
+                    merged.update(eff_params)
+                    eff_params = merged
+                    if not eff_voice_id:
+                        eff_voice_id = ch.voice_id
+                    if not eff_engine_id:
+                        eff_engine_id = ch.engine_id
+                    if not eff_lang and ch.language:
+                        eff_lang = ch.language
+
                 job_req = TTSJobSubmitRequest(
-                    engine_id=seg.engine_id,
+                    engine_id=eff_engine_id,
                     text=seg.text,
-                    language=seg.language,
-                    voice_id=seg.voice_id,
-                    parameters=seg.parameters,
+                    language=eff_lang,
+                    voice_id=eff_voice_id,
+                    parameters=eff_params,
                     priority=1,
                     idempotency_key=f"seg-{seg.id}-{seg.text_hash[:32]}",
                 )

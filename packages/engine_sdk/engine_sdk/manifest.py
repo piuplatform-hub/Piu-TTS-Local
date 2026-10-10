@@ -14,6 +14,7 @@ class CapabilityEnum(str, Enum):
     STREAMING_AUDIO = "streaming_audio"
     MULTILINGUAL_SYNTHESIS = "multilingual_synthesis"
     EMOTION_CONTROL = "emotion_control"
+    ADVANCED_VOICE_CONTROLS = "advanced_voice_controls"
 
 
 class EngineRuntime(BaseModel):

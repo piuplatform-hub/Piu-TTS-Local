@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...database import get_db
 from ...models.user import User
-from ...schemas.engine import EngineDetailResponse
+from ...schemas.engine import EngineDetailResponse, EngineCapabilityDetailResponse
 from ...services.auth_service import get_current_user
 from ...services.engine_service import EngineService
 from ...supervisor.supervisor import supervisor
@@ -56,3 +56,15 @@ async def check_engine_health(
             detail=f"Failed to communicate with engine worker: {exc}",
             code="ENGINE_WORKER_UNHEALTHY",
         )
+
+
+@router.get("/{engine_id}/capabilities", response_model=EngineCapabilityDetailResponse)
+async def get_engine_capabilities(
+    engine_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Get verified engine parameters, UI metadata, bounds, presets, and capabilities.
+    """
+    return await EngineService.get_engine_capabilities(db, engine_id)

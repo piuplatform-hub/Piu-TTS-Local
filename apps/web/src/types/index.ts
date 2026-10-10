@@ -188,3 +188,66 @@ export interface TextSegmentationResult {
   segments: TextSegmentItem[];
 }
 
+// -------------------------------------------------------------
+// PHASE 6A VOICE LAB & CAPABILITY REGISTRY TYPES
+// -------------------------------------------------------------
+export interface ParameterDefinition {
+  name: string;
+  type: 'number' | 'integer' | 'boolean' | 'string';
+  min?: number;
+  max?: number;
+  default?: any;
+  step?: number;
+  category: 'native' | 'dsp';
+  label: string;
+  description: string;
+  enum?: string[];
+}
+
+export interface VoicePreset {
+  id: string;
+  label: string;
+  description: string;
+  values: Record<string, any>;
+}
+
+export interface EngineCapabilityDetail {
+  engine_id: string;
+  name: string;
+  version: string;
+  installed: boolean;
+  status: 'ready' | 'unloaded' | 'error' | 'not_installed';
+  device_target: string;
+  capabilities: string[];
+  supported_languages: string[];
+  default_sample_rate: number;
+  parameters: ParameterDefinition[];
+  presets: VoicePreset[];
+  preset_voices: PresetVoice[];
+  description?: string;
+}
+
+export interface ReferenceAsset {
+  id: string;
+  filename: string;
+  file_size_bytes: number;
+  duration_seconds: number;
+  sample_rate: number;
+  channels: number;
+  format: string;
+  voice_use_consent: boolean;
+  created_at: string;
+}
+
+export interface VoiceProfile {
+  id: string;
+  user_id: string;
+  name: string;
+  description?: string | null;
+  engine_id: string;
+  reference_asset_id: string;
+  parameters: Record<string, any>;
+  created_at: string;
+  updated_at: string;
+}
+

@@ -3,11 +3,14 @@ Reference Audio Assets API Endpoints (v1)
 Secure upload, management, and retrieval of audio references for voice cloning.
 """
 
-from typing import List
-from fastapi import APIRouter, Depends, File, Form, UploadFile
+from pathlib import Path
+from typing import List, Optional
+from fastapi import APIRouter, Depends, File, Form, UploadFile, status
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...database import get_db
+from ...core.errors import AppException
 from ...models.user import User
 from ...schemas.asset import ReferenceAssetResponse, ReferenceAssetUploadResponse
 from ...services.auth_service import get_current_user, require_editor
@@ -125,6 +128,55 @@ async def get_reference_audio(
         format=record.format,
         voice_use_consent=record.voice_use_consent,
         created_at=record.created_at,
+    )
+
+
+@router.get("/reference-audio/{asset_id}/file")
+async def get_reference_audio_file(
+    asset_id: str,
+    token: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Stream or download the reference audio WAV file for in-browser playback.
+    Strictly secured via 'Authorization: Bearer <token>' header.
+    Rejects query parameter authentication (CWE-598).
+    Enforces per-user ownership check.
+    Supports HTTP Range requests for playback.
+    """
+    if token is not None:
+        raise AppException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            title="Query Authentication Prohibited",
+            detail="Passing authentication tokens in URL query strings is prohibited for security reasons (CWE-598). Use 'Authorization: Bearer <token>' header.",
+            code="QUERY_AUTH_PROHIBITED",
+        )
+
+    record = await AssetService.get_reference_asset(db, asset_id, current_user)
+    file_path = Path(record.file_path)
+
+    if not file_path.exists():
+        raise AppException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            title="Reference Audio File Missing",
+            detail="Physical audio file for this reference asset was not found on disk.",
+            code="REFERENCE_AUDIO_FILE_MISSING",
+        )
+
+    media_type = "audio/wav" if record.format.lower() == "wav" else "application/octet-stream"
+    filename = record.filename or f"reference-{record.id[:8]}.wav"
+
+    return FileResponse(
+        path=str(file_path),
+        media_type=media_type,
+        filename=filename,
+        headers={
+            "Accept-Ranges": "bytes",
+            "Content-Disposition": f'inline; filename="{filename}"',
+            "Cache-Control": "private, no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+        },
     )
 
 

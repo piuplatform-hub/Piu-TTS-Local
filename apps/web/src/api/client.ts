@@ -12,6 +12,9 @@ import {
   ProjectDetail,
   ProjectExport,
   TextSegmentationResult,
+  EngineCapabilityDetail,
+  ReferenceAsset,
+  VoiceProfile,
 } from '../types';
 
 const TOKEN_KEY = 'ai_voice_studio_token';
@@ -112,6 +115,10 @@ class ApiClient {
 
   async getEngines(): Promise<EngineInfo[]> {
     return this.request<EngineInfo[]>('/api/v1/engines');
+  }
+
+  async getEngineCapabilities(engineId: string): Promise<EngineCapabilityDetail> {
+    return this.request<EngineCapabilityDetail>(`/api/v1/engines/${engineId}/capabilities`);
   }
 
   async submitTTSJob(params: {
@@ -237,8 +244,56 @@ class ApiClient {
     return res.json();
   }
 
-  async listReferenceAudios(): Promise<any[]> {
-    return this.request<any[]>('/api/v1/assets/reference-audio');
+  async listReferenceAudios(): Promise<ReferenceAsset[]> {
+    return this.request<ReferenceAsset[]>('/api/v1/assets/reference-audio');
+  }
+
+  async deleteReferenceAudio(assetId: string): Promise<void> {
+    return this.request<void>(`/api/v1/assets/reference-audio/${assetId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async fetchReferenceAudioBlob(assetId: string): Promise<Blob> {
+    const headers: Record<string, string> = {};
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`;
+    }
+    const res = await fetch(`/api/v1/assets/reference-audio/${assetId}/file`, {
+      method: 'GET',
+      headers,
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to stream reference audio (${res.status})`);
+    }
+    return res.blob();
+  }
+
+  async createVoiceProfile(data: {
+    name: string;
+    reference_asset_id: string;
+    engine_id?: string;
+    description?: string;
+    parameters?: Record<string, any>;
+  }): Promise<VoiceProfile> {
+    return this.request<VoiceProfile>('/api/v1/voices/profiles', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async listVoiceProfiles(): Promise<VoiceProfile[]> {
+    return this.request<VoiceProfile[]>('/api/v1/voices/profiles');
+  }
+
+  async getVoiceProfile(profileId: string): Promise<VoiceProfile> {
+    return this.request<VoiceProfile>(`/api/v1/voices/profiles/${profileId}`);
+  }
+
+  async deleteVoiceProfile(profileId: string): Promise<void> {
+    return this.request<void>(`/api/v1/voices/profiles/${profileId}`, {
+      method: 'DELETE',
+    });
   }
 
   /**

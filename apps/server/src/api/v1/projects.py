@@ -24,7 +24,7 @@ from apps.server.src.schemas.project import (
     CharacterCreate, CharacterUpdate, CharacterResponse,
     SegmentCreate, SegmentUpdate, SegmentResponse, SegmentBulkSyncRequest,
     TextSegmentRequest, TextSegmentResponse, TextSegmentItem,
-    MasterExportRequest, ProjectExportResponse
+    MasterExportRequest, ProjectExportResponse, BatchRenderRequest
 )
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -234,7 +234,7 @@ async def render_single_segment(
 @router.post("/{project_id}/render-batch", response_model=List[SegmentResponse])
 async def render_batch_segments(
     project_id: str,
-    segment_ids: Optional[List[str]] = None,
+    req: Optional[BatchRenderRequest] = None,
     current_user: User = Depends(require_editor),
     db: AsyncSession = Depends(get_db),
 ):
@@ -242,6 +242,7 @@ async def render_batch_segments(
     Submits batch synthesis jobs for multiple or all draft/stale segments in the project.
     Requires editor or admin role.
     """
+    segment_ids = req.segment_ids if req else None
     rendered_pairs = await ProjectService.render_batch(db, current_user, project_id, segment_ids)
     return [pair[0] for pair in rendered_pairs]
 

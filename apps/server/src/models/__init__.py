@@ -10,6 +10,7 @@ from .export import ProjectExportRecord
 from .login_attempt import LoginAttemptRecord
 from .scheduling_state import UserSchedulingStateRecord
 from .storage_reservation import StorageReservationRecord
+from .voice_profile import VoiceProfileRecord
 
 __all__ = [
     "User",
@@ -26,4 +27,5 @@ __all__ = [
     "LoginAttemptRecord",
     "UserSchedulingStateRecord",
     "StorageReservationRecord",
+    "VoiceProfileRecord",
 ]

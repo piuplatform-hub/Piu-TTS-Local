@@ -28,8 +28,8 @@ export const Header: React.FC<HeaderProps> = ({
           <div>
             <div className="flex items-center space-x-2">
               <span className="font-bold text-lg text-white tracking-tight">AI Voice Studio</span>
-              <span className="text-[10px] font-semibold tracking-wider uppercase px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20">
-                Phase 4 Pro Studio
+              <span className="text-[10px] font-semibold tracking-wider uppercase px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                Phase 6A Voice Lab
               </span>
             </div>
             <p className="text-xs text-slate-400">Local-First Multi-Speaker Speech Workstation</p>
@@ -59,7 +59,7 @@ export const Header: React.FC<HeaderProps> = ({
               }`}
             >
               <Radio className="w-3.5 h-3.5" />
-              <span>Thử Giọng Lẻ</span>
+              <span>Voice Lab</span>
             </button>
             <button
               onClick={() => onTabChange('history')}

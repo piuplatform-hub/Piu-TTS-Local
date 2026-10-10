@@ -4,6 +4,7 @@ Durable Queue Service (SQLite Transactional Queue with Fencing Tokens and Lease 
 
 import asyncio
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 import uuid
 
@@ -14,6 +15,7 @@ from .. import database
 from ..config import settings
 from ..core.errors import AppException
 from ..models.asset import ReferenceAssetRecord
+from ..models.voice_profile import VoiceProfileRecord
 from ..models.engine import EngineRecord
 from ..models.job import JobRecord
 from ..models.user import User
@@ -56,37 +58,70 @@ class DurableQueueService:
                 code="UNSUPPORTED_LANGUAGE",
             )
 
-        # B. Voice Selection Validation
-        if req.voice_id:
-            valid_voices = set()
-            if req.engine_id == "vieneu-tts":
-                valid_voices = {
-                    "hai_dang", "mai_anh", "truc_ly", "thien_minh", "thuy_dung",
-                    "thien_tam_duc", "ngoc_huyen", "quang_son", "ngoc_tran", "minh_duc",
-                    "thai_son", "xuan_vinh", "ngoc_linh", "doan_trang", "thuc_doan",
-                    "minh_triet", "my_duyen", "quynh_anh", "duc_tri", "kim_thanh",
-                    "adam", "quoc_tuan"
-                }
-            elif req.engine_id == "qwen3-tts":
-                valid_voices = {
-                    "vivian", "uncle_fu", "serena", "aiden", "dylan",
-                    "eric", "ono_anna", "ryan", "sohee"
-                }
-            elif req.engine_id == "mock-tts":
-                valid_voices = {"vi-female-1", "vi-male-1", "en-female-1", "zh-female-1"}
+        # B. Voice Profile Resolution & Voice Selection Validation
+        input_params = dict(req.parameters or {})
+        sanitized_params = {}
 
-            if valid_voices and req.voice_id.lower() not in valid_voices:
-                raise AppException(
-                    status_code=422,
-                    title="Unsupported Voice",
-                    detail=f"Voice '{req.voice_id}' is not supported by engine '{req.engine_id}'. Valid voices: {sorted(list(valid_voices))}",
-                    code="UNSUPPORTED_VOICE",
+        if req.voice_id:
+            clean_voice = req.voice_id.strip()
+            # Check if voice_id points to a saved VoiceProfile
+            profile_rec = None
+            if clean_voice.startswith("profile:"):
+                prof_id = clean_voice.split(":", 1)[1]
+                stmt_prof = select(VoiceProfileRecord).where(
+                    VoiceProfileRecord.id == prof_id,
+                    VoiceProfileRecord.user_id == current_user.id,
                 )
+                profile_rec = (await db.execute(stmt_prof)).scalar_one_or_none()
+                if not profile_rec:
+                    raise AppException(
+                        status_code=404,
+                        title="Voice Profile Not Found",
+                        detail=f"Voice profile '{clean_voice}' does not exist for this user.",
+                        code="VOICE_PROFILE_NOT_FOUND",
+                    )
+            elif len(clean_voice) == 36 and "-" in clean_voice:
+                stmt_prof = select(VoiceProfileRecord).where(
+                    VoiceProfileRecord.id == clean_voice,
+                    VoiceProfileRecord.user_id == current_user.id,
+                )
+                profile_rec = (await db.execute(stmt_prof)).scalar_one_or_none()
+
+            if profile_rec:
+                if "reference_asset_id" not in input_params:
+                    input_params["reference_asset_id"] = profile_rec.reference_asset_id
+                for pk, pv in (profile_rec.parameters or {}).items():
+                    if pk not in input_params:
+                        input_params[pk] = pv
+            else:
+                valid_voices = set()
+                if req.engine_id == "vieneu-tts":
+                    valid_voices = {
+                        "hai_dang", "mai_anh", "truc_ly", "thien_minh", "thuy_dung",
+                        "thien_tam_duc", "ngoc_huyen", "quang_son", "ngoc_tran", "minh_duc",
+                        "thai_son", "xuan_vinh", "ngoc_linh", "doan_trang", "thuc_doan",
+                        "minh_triet", "my_duyen", "quynh_anh", "duc_tri", "kim_thanh",
+                        "adam", "quoc_tuan"
+                    }
+                elif req.engine_id == "qwen3-tts":
+                    valid_voices = {
+                        "vivian", "uncle_fu", "serena", "aiden", "dylan",
+                        "eric", "ono_anna", "ryan", "sohee"
+                    }
+                elif req.engine_id == "mock-tts":
+                    valid_voices = {"vi-female-1", "vi-male-1", "en-female-1", "zh-female-1"}
+
+                has_cloning_hint = "reference_asset_id" in input_params or "ref_audio" in input_params
+                if valid_voices and clean_voice.lower() not in valid_voices and not has_cloning_hint:
+                    raise AppException(
+                        status_code=422,
+                        title="Unsupported Voice",
+                        detail=f"Voice '{req.voice_id}' is not supported by engine '{req.engine_id}'. Valid voices: {sorted(list(valid_voices))}",
+                        code="UNSUPPORTED_VOICE",
+                    )
 
         # C. Parameters Schema & Capabilities Validation
         params_schema = manifest_dict.get("parameters_schema", {})
-        input_params = dict(req.parameters or {})
-        sanitized_params = {}
 
         # 1. Check for Voice Cloning request and capability
         has_cloning = "reference_asset_id" in input_params or "ref_audio" in input_params
@@ -151,6 +186,15 @@ class DurableQueueService:
                     code="VOICE_CONSENT_REQUIRED",
                 )
 
+            # Strict check for physical audio file on host disk
+            if not Path(asset_rec.file_path).exists():
+                raise AppException(
+                    status_code=404,
+                    title="Reference Audio File Missing",
+                    detail=f"Physical audio file for reference asset '{asset_rec.id}' does not exist on disk.",
+                    code="REFERENCE_AUDIO_FILE_MISSING",
+                )
+
             # Resolve to verified safe server path for the isolated worker
             sanitized_params["ref_audio"] = asset_rec.file_path
             sanitized_params["reference_asset_id"] = asset_rec.id
@@ -170,8 +214,8 @@ class DurableQueueService:
                 )
 
         # D. Validate other parameters
-        if "speed" in input_params:
-            speed_val = input_params["speed"]
+        if "speed" in input_params or req.speed != 1.0:
+            speed_val = input_params.get("speed", req.speed)
             if not isinstance(speed_val, (int, float)) or not (0.25 <= float(speed_val) <= 4.0):
                 raise AppException(
                     status_code=422,
@@ -203,6 +247,61 @@ class DurableQueueService:
                     code="INVALID_PARAMETER_VALUE",
                 )
             sanitized_params["speaker"] = speaker_val
+
+        if "temperature" in input_params:
+            temp_val = input_params["temperature"]
+            if not isinstance(temp_val, (int, float)) or not (0.1 <= float(temp_val) <= 2.0):
+                raise AppException(
+                    status_code=422,
+                    title="Invalid Temperature",
+                    detail=f"Temperature parameter must be a number between 0.1 and 2.0, received: {temp_val}",
+                    code="INVALID_PARAMETER_VALUE",
+                )
+            sanitized_params["temperature"] = float(temp_val)
+
+        if "top_p" in input_params:
+            top_p_val = input_params["top_p"]
+            if not isinstance(top_p_val, (int, float)) or not (0.01 <= float(top_p_val) <= 1.0):
+                raise AppException(
+                    status_code=422,
+                    title="Invalid Top-P",
+                    detail=f"Top-P parameter must be a number between 0.01 and 1.0, received: {top_p_val}",
+                    code="INVALID_PARAMETER_VALUE",
+                )
+            sanitized_params["top_p"] = float(top_p_val)
+
+        if "top_k" in input_params:
+            top_k_val = input_params["top_k"]
+            if not isinstance(top_k_val, int) or isinstance(top_k_val, bool) or not (1 <= top_k_val <= 200):
+                raise AppException(
+                    status_code=422,
+                    title="Invalid Top-K",
+                    detail=f"Top-K parameter must be an integer between 1 and 200, received: {top_k_val}",
+                    code="INVALID_PARAMETER_VALUE",
+                )
+            sanitized_params["top_k"] = int(top_k_val)
+
+        if "repetition_penalty" in input_params:
+            rep_pen_val = input_params["repetition_penalty"]
+            if not isinstance(rep_pen_val, (int, float)) or not (1.0 <= float(rep_pen_val) <= 3.0):
+                raise AppException(
+                    status_code=422,
+                    title="Invalid Repetition Penalty",
+                    detail=f"Repetition penalty parameter must be a number between 1.0 and 3.0, received: {rep_pen_val}",
+                    code="INVALID_PARAMETER_VALUE",
+                )
+            sanitized_params["repetition_penalty"] = float(rep_pen_val)
+
+        if "repetition_window" in input_params:
+            rep_win_val = input_params["repetition_window"]
+            if not isinstance(rep_win_val, int) or isinstance(rep_win_val, bool) or not (10 <= rep_win_val <= 500):
+                raise AppException(
+                    status_code=422,
+                    title="Invalid Repetition Window",
+                    detail=f"Repetition window parameter must be an integer between 10 and 500, received: {rep_win_val}",
+                    code="INVALID_PARAMETER_VALUE",
+                )
+            sanitized_params["repetition_window"] = int(rep_win_val)
 
         payload = req.model_dump()
         payload["parameters"] = sanitized_params
