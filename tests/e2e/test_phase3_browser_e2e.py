@@ -91,6 +91,7 @@ def test_phase3_real_browser_e2e_journey():
             host="127.0.0.1",
             port=port,
             log_level="warning",
+            lifespan="on",
             proxy_headers=settings.UVICORN_PROXY_HEADERS,
             forwarded_allow_ips=settings.UVICORN_FORWARDED_ALLOW_IPS,
         )
@@ -140,10 +141,11 @@ def test_phase3_real_browser_e2e_journey():
 
             # Step 2: Speech Studio Authenticated & Switch to Single TTS Tab if needed
             page.wait_for_selector("text=lead_architect", timeout=10000)
-            if page.locator('button:has-text("Thử Giọng Lẻ")').count() > 0:
+            if page.locator('button:has-text("Voice Lab")').count() > 0:
+                page.click('button:has-text("Voice Lab")')
+            elif page.locator('button:has-text("Thử Giọng Lẻ")').count() > 0:
                 page.click('button:has-text("Thử Giọng Lẻ")')
-            page.wait_for_selector("text=Speech Studio", timeout=10000)
-            page.wait_for_selector("text=Phase 3 Neural Engines", timeout=10000)
+            page.wait_for_selector("text=Voice Lab", timeout=10000)
 
             # Wait for engines to populate in select
             page.wait_for_selector('option[value="vieneu-tts"]', state="attached", timeout=10000)
@@ -165,7 +167,7 @@ def test_phase3_real_browser_e2e_journey():
             page.screenshot(path=str(SCREENSHOT_DIR / "phase3_02_vieneu_completed.png"))
 
             # Step 4: Test VieNeu-TTS Voice Cloning UI
-            page.click('button:has-text("Nhân bản giọng")')
+            page.click('button:has-text("Nhân bản")')
             page.set_input_files('input[type="file"]', str(ref_sample_wav))
             page.wait_for_selector(f"text={ref_sample_wav.name}", timeout=5000)
             page.check('input[type="checkbox"] >> nth=0')

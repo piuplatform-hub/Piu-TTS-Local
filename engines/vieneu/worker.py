@@ -282,6 +282,13 @@ class VieNeuWorkerHandler(BaseHTTPRequestHandler):
                     except Exception:
                         pass
 
+                # Audio Gain Staging & Headroom Limiting:
+                # Protect against PCM_16 digital hard clipping without altering dynamic consistency of normal segments.
+                if len(audio_array) > 0:
+                    peak_amp = float(np.max(np.abs(audio_array)))
+                    if peak_amp > 0.98:
+                        audio_array = audio_array * (0.98 / peak_amp)
+
                 # Export to 16-bit PCM WAV in memory
                 buf = io.BytesIO()
                 sf.write(buf, audio_array, 48000, format="WAV", subtype="PCM_16")

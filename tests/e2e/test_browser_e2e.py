@@ -69,6 +69,7 @@ def test_real_browser_end_to_end_journey():
             host="127.0.0.1",
             port=port,
             log_level="warning",
+            lifespan="on",
             proxy_headers=settings.UVICORN_PROXY_HEADERS,
             forwarded_allow_ips=settings.UVICORN_FORWARDED_ALLOW_IPS,
         )
@@ -132,25 +133,27 @@ def test_real_browser_end_to_end_journey():
             page.wait_for_selector("text=CPU", timeout=10000)
             page.screenshot(path=str(SCREENSHOT_DIR / "02_speech_studio_view.png"))
 
-            # Step 6 & 7: Select Mock Engine & Enter Vietnamese text
-            mock_option = page.locator('select option[value="mock-tts"]')
-            if mock_option.count() > 0:
-                page.select_option('select:has(option[value="mock-tts"])', "mock-tts")
+            # Step 6 & 7: Select Available Engine & Enter Vietnamese text
+            vieneu_option = page.locator('select option[value="vieneu-tts"]')
+            if vieneu_option.count() > 0:
+                page.select_option('select:has(option[value="vieneu-tts"])', value="vieneu-tts")
+            elif page.locator('select option[value="mock-tts"]').count() > 0:
+                page.select_option('select:has(option[value="mock-tts"])', value="mock-tts")
             vietnamese_text = "Hệ thống kiểm thử trình duyệt Chrome thực tế đã hoạt động ổn định và chính xác."
             page.fill('textarea[placeholder="Nhập đoạn văn bản cần chuyển thành giọng nói tại đây..."]', vietnamese_text)
 
             # Step 8: Click Generate Speech
-            page.click('button:has-text("Tạo giọng nói")')
+            page.click('button:has-text("Tạo giọng nói AI")')
 
             # Step 9: Observe progress until completed (progress bar 100% and audio player appears)
-            page.wait_for_selector("text=Tải WAV", timeout=30000)
+            page.wait_for_selector("text=Tải WAV", timeout=60000)
             page.wait_for_selector("audio", state="attached", timeout=5000)
             page.screenshot(path=str(SCREENSHOT_DIR / "03_audio_generated_view.png"))
 
             # Step 10: Verify audio player and metadata (Supports both direct artifact URL and secure Bearer Blob)
             audio_elem = page.locator("audio")
             assert audio_elem.count() >= 1, "Audio element was not rendered"
-            audio_src = audio_elem.get_attribute("src")
+            audio_src = audio_elem.first.get_attribute("src")
             assert audio_src and (audio_src.startswith("blob:") or "/api/v1/artifacts/" in audio_src), f"Audio src invalid: {audio_src}"
 
             # Step 11: Verify download WAV button (Supports hardened Fetch Blob button or legacy anchor)
@@ -163,7 +166,7 @@ def test_real_browser_end_to_end_journey():
 
             # Submit another job and cancel it while in flight
             page.fill('textarea[placeholder="Nhập đoạn văn bản cần chuyển thành giọng nói tại đây..."]', "Tác vụ này sẽ bị hủy kiểm thử Phase 2.")
-            page.click('button:has-text("Tạo giọng nói")')
+            page.click('button:has-text("Tạo giọng nói AI")')
 
             # Wait for Cancel button and click it
             page.wait_for_selector('button:has-text("Hủy tác vụ")', timeout=5000)

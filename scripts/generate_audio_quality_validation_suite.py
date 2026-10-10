@@ -112,10 +112,18 @@ def main():
         audio = model.infer(task["text"], **task["kwargs"])
         latency = time.perf_counter() - t_start
 
+        raw_peak = float(np.max(np.abs(audio))) if len(audio) > 0 else 0.0
+
+        # Audio Gain Staging & Headroom Limiting (Consistent with Worker layer)
+        # Only scales signals exceeding safe 0.98 ceiling to prevent digital PCM_16 clipping
+        if len(audio) > 0 and raw_peak > 0.98:
+            audio = audio * (0.98 / raw_peak)
+
         out_path = OUTPUT_DIR / task["name"]
         sf.write(str(out_path), audio, 48000, format="WAV", subtype="PCM_16")
 
         metrics = analyze_audio_metrics(audio, 48000, latency)
+        metrics["raw_model_peak"] = round(raw_peak, 4)
         metrics["filename"] = task["name"]
         metrics["description"] = task["desc"]
         report_data.append(metrics)

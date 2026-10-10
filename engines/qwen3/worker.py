@@ -269,6 +269,13 @@ class Qwen3WorkerHandler(BaseHTTPRequestHandler):
                 if audio_array.ndim > 1:
                     audio_array = audio_array.squeeze()
 
+                # Audio Gain Staging & Headroom Limiting:
+                # Protect against PCM_16 digital hard clipping without altering dynamic consistency of normal segments.
+                if len(audio_array) > 0:
+                    peak_amp = float(np.max(np.abs(audio_array)))
+                    if peak_amp > 0.98:
+                        audio_array = audio_array * (0.98 / peak_amp)
+
                 buf = io.BytesIO()
                 sf.write(buf, audio_array, int(sample_rate), format="WAV", subtype="PCM_16")
                 wav_bytes = buf.getvalue()
