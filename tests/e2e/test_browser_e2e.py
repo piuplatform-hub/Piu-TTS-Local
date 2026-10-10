@@ -124,7 +124,9 @@ def test_real_browser_end_to_end_journey():
 
             # Step 4 & 5: Authenticated State & Switch to Single TTS Tab if needed
             page.wait_for_selector("text=e2e_admin", timeout=10000)
-            if page.locator('button:has-text("Thử Giọng Lẻ")').count() > 0:
+            if page.locator('button:has-text("Voice Lab")').count() > 0:
+                page.click('button:has-text("Voice Lab")')
+            elif page.locator('button:has-text("Thử Giọng Lẻ")').count() > 0:
                 page.click('button:has-text("Thử Giọng Lẻ")')
             # Wait for engine device target to be loaded and active
             page.wait_for_selector("text=CPU", timeout=10000)
