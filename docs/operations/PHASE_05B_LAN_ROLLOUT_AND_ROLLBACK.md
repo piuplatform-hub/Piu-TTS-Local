@@ -57,19 +57,20 @@ $env:BACKEND_PORT = "8765"
 # 1. Thẩm định cú pháp cấu hình trước khi chạy
 .\infra\caddy\caddy.exe validate --config "infra\caddy\Caddyfile.lan.template"
 
-# 2. Khởi chạy Caddy tiến trình nền có theo dõi PID
+# 2. Khởi chạy Caddy tiến trình nền có theo dõi PID và thời điểm tạo
 $caddyProc = Start-Process -FilePath ".\infra\caddy\caddy.exe" `
     -ArgumentList "run --config infra\caddy\Caddyfile.lan.template" `
     -PassThru
 
-# 3. Ghi PID vào file quản lý phiên triển khai
-$caddyProc.Id | Out-File -FilePath "infra\caddy\caddy_lan.pid" -Encoding ascii
+# 3. Ghi PID và siêu dữ liệu tiến trình vào file quản lý phiên triển khai
+"PID=$($caddyProc.Id)`nStartTime=$($caddyProc.StartTime.ToString('o'))`nPath=$($caddyProc.Path)" | 
+    Out-File -FilePath "infra\caddy\caddy_lan.pid" -Encoding ascii
 Write-Host "Caddy LAN Gateway started with controlled PID: $($caddyProc.Id)"
 ```
 
 ### Bước 4: Phân phối Chứng chỉ Root CA tới Máy Khách Biên Tập Viên
 1. Trích xuất file Root CA công khai từ máy chủ phòng thu:
-   `$env:LOCALAPPDATA\Caddy\pki\authorities\local\root.crt`
+   `$env:APPDATA\caddy\pki\authorities\local\root.crt`
 2. Phân phối file `root.crt` tới các máy tính biên tập viên được ủy quyền trong mạng LAN (tuyệt đối không sao chép `root.key`).
 3. Trên máy tính khách (Windows), nhập chứng chỉ vào Trusted Root Store:
    ```powershell
@@ -108,20 +109,32 @@ Lập tức thực hiện quy trình hủy bỏ khẩn cấp nếu xuất hiện
 
 Thực hiện tuần tự các bước sau:
 
-### Bước 1: Dừng Chính Xác Tiến trình Caddy Được Quản lý (Scoped PID Termination)
-Chỉ dừng đúng tiến trình Caddy thuộc phiên triển khai LAN, không quét tắt tiến trình ngoài phạm vi:
+### Bước 1: Dừng Chính Xác Tiến trình Caddy Được Quản lý (Verified Scoped PID Termination)
+Chỉ dừng đúng tiến trình Caddy thuộc phiên triển khai LAN sau khi đối soát đầy đủ ExecutablePath và CreationDate, ngăn chặn tuyệt đối việc dừng nhầm PID bị tái sử dụng (recycled PID):
 ```powershell
+# Thực thi qua script tự động:
+powershell -File scripts\lan_rollback.ps1
+
+# Hoặc thực hiện thủ công có đối soát:
 if (Test-Path "infra\caddy\caddy_lan.pid") {
-    $caddyPid = (Get-Content "infra\caddy\caddy_lan.pid").Trim()
-    if ($caddyPid -match '^\d+$') {
-        Stop-Process -Id ([int]$caddyPid) -Force -ErrorAction SilentlyContinue
-        Write-Host "Stopped Caddy LAN process PID: $caddyPid"
+    $pidContent = (Get-Content "infra\caddy\caddy_lan.pid" -Raw).Trim()
+    $pidMatch = [regex]::Match($pidContent, '(?m)^PID=(\d+)')
+    $caddyPid = if ($pidMatch.Success) { [int]$pidMatch.Groups[1].Value } else { [int]($pidContent.Split("`n")[0].Trim()) }
+    
+    if ($caddyPid -gt 0) {
+        $proc = Get-CimInstance Win32_Process -Filter "ProcessId = $caddyPid" -ErrorAction SilentlyContinue
+        if ($proc -and ($proc.ExecutablePath -like "*caddy.exe*") -and ($proc.CommandLine -like "*Caddyfile.lan*")) {
+            Write-Host "Xác thực tiến trình Caddy LAN hợp lệ (PID: $caddyPid). Dừng tiến trình..."
+            Stop-Process -Id $caddyPid -Force -ErrorAction SilentlyContinue
+        } else {
+            Write-Host "CẢNH BÁO: PID $caddyPid không khớp với Caddy Gateway! Bỏ qua để tránh tắt nhầm ứng dụng khác."
+        }
     }
     Remove-Item "infra\caddy\caddy_lan.pid" -Force -ErrorAction SilentlyContinue
 } else {
-    # Dự phòng an toàn: Chỉ dừng Caddy có commandline chứa template LAN
+    # Dự phòng an toàn: Chỉ dừng Caddy có commandline chứa Caddyfile.lan của dự án
     Get-CimInstance Win32_Process -Filter "Name = 'caddy.exe'" | 
-        Where-Object { $_.CommandLine -like "*Caddyfile.lan*" } | 
+        Where-Object { $_.CommandLine -like "*Caddyfile.lan*" -and $_.ExecutablePath -like "*TTS\infra\caddy\*" } | 
         ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
 }
 
@@ -170,15 +183,18 @@ Khởi động lại Caddy với cấu hình loopback gốc [infra/caddy/Caddyfi
 ### Bước 2: Dừng Toàn bộ Luồng Ghi Dữ liệu (Stop All SQLite Writers)
 Trước khi thao tác với file SQLite, BẮT BUỘC phải dừng toàn bộ tiến trình có kết nối mở tới cơ sở dữ liệu:
 ```powershell
-# Dừng backend FastAPI / Uvicorn và toàn bộ Worker engines
+# Dừng backend FastAPI / Uvicorn và Worker engines thuộc dự án TTS (Tuyệt đối không tắt Python ngoài thư mục)
 Get-CimInstance Win32_Process | 
     Where-Object { 
-        $_.CommandLine -like "*apps.server.src*" -or 
-        $_.CommandLine -like "*engines\*worker.py*" 
+        ($_.CommandLine -like "*d:\C\Dev\du an\TTS*" -or $_.CommandLine -like "*TTS\.venv\*") -and 
+        ($_.CommandLine -like "*apps.server.src*" -or $_.CommandLine -like "*engines\*worker.py*") 
     } | 
-    ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+    ForEach-Object { 
+        Write-Host "Dừng tiến trình TTS writer PID: $($_.ProcessId) ($($_.CommandLine))"
+        Stop-Process -Id $_.ProcessId -Force 
+    }
 
-Write-Host "All backend SQLite writer processes stopped."
+Write-Host "Toàn bộ tiến trình backend SQLite writer của dự án đã dừng an toàn."
 ```
 
 ### Bước 3: Khôi phục Thử nghiệm vào Môi trường Cách ly (Disposable Sandbox)
