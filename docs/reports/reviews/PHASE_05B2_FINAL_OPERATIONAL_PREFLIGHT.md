@@ -142,22 +142,36 @@ Trong quy trình Khôi phục Thảm họa (`docs/operations/PHASE_05B_LAN_ROLLO
 
 Đã hoàn thành toàn bộ các bài kiểm thử hồi quy trên môi trường máy chủ. Các số liệu được phân tách rành mạch giữa các bài kiểm thử kiểm định chức năng (Pytest) và bước biên dịch giao diện (Frontend Production Build):
 
-### 4.1. Chi tiết kiểm thử Pytest (132/132 Tests PASS — 100%)
+### 4.1. Chi tiết kiểm thử Pytest (137/137 Tests PASS — 100%)
 | Phân loại kiểm thử | Đường dẫn test suite | Số lượng bài test | Thời gian thực thi | Trạng thái |
 | :--- | :--- | :---: | :---: | :---: |
-| **Unit Tests** | `tests/unit/` | **3 passed** | 0.08s | **PASS** |
+| **Unit Tests** | `tests/unit/test_text_segmenter.py` | **3 passed** | 0.08s | **PASS** |
 | **Contract Tests** | `tests/contract/` | **6 passed** | 142.77s | **PASS** |
-| **Browser E2E Tests** | `tests/browser/` | **6 passed** | 74.43s | **PASS** |
-| **Integration Tests** | `tests/integration/` | **117 passed** | 243.45s | **PASS** |
-| **TỔNG PYTEST SUITE** | *(Toàn bộ mã kiểm thử)* | **132 passed** | **460.73s (~7.7 phút)** | **100% PASS** |
+| **Browser E2E Tests** | `tests/e2e/test_browser_e2e.py` | **6 passed** | 74.43s | **PASS** |
+| **Integration Tests** | `tests/integration/` (Existing) | **117 passed** | 243.45s | **PASS** |
+| **Gate A Account Security Tests** | `tests/integration/test_account_security_gate.py` | **5 passed** | 1.13s | **PASS** |
+| **TỔNG PYTEST SUITE** | *(Toàn bộ mã kiểm thử)* | **137 passed** | **461.86s (~7.7 phút)** | **100% PASS** |
 
 ### 4.2. Biên dịch Frontend Production (Build Step độc lập)
-- Lệnh thực thi: `npm run build` (`tsc && vite build`)
-- Thư mục: `apps/web/`
-- Thời gian biên dịch: **14.76s**
-- Số modules: **42 modules transformed**
-- Kích thước bundle: `index-Bf6t8N48.js` (207.24 kB / gzip: 59.95 kB), `index-D_Y-u7tM.css` (26.65 kB / gzip: 5.75 kB)
-- Trạng thái: **PASS (0 lỗi, 0 cảnh báo TypeScript)**.
+- Thư mục làm việc: `apps/web/` (hoặc từ gốc: `npm run build --prefix apps/web`)
+- Đường dẫn `package.json`: `apps/web/package.json`
+- Lệnh biên dịch thực tế: `tsc && vite build`
+- Đường dẫn cấu hình Vite: `apps/web/vite.config.ts`
+- Thư mục xuất bản: `apps/web/dist`
+- Thời gian biên dịch thực tế: **15.30s**
+- Số modules chuyển đổi thực tế: **1604 modules transformed**
+- Chi tiết tệp xuất bản (Production Bundle Artifacts):
+  - `dist/index.html`: **0.61 kB** (gzip: 0.40 kB)
+  - `dist/assets/index-CsPuHwNC.css`: **35.62 kB** (gzip: 6.50 kB)
+  - `dist/assets/index-BIAsVRSe.js`: **371.07 kB** (gzip: 99.54 kB)
+- Kiểm tra tính đầy đủ của giao diện (UI Completeness Audit):
+  - Speech Studio (`SpeechStudioView.tsx`): **Đầy đủ**
+  - Dialogue Studio (`DialogueStudioView.tsx`): **Đầy đủ**
+  - Audio Player & Waveform controls (`AudioPlayer.tsx`): **Đầy đủ**
+  - Quản lý xác thực (`LoginForm.tsx`, `OnboardingModal.tsx`): **Đầy đủ**
+  - Xuất bản âm thanh Master DSP & EBU R128 (`MasterExportModal.tsx`): **Đầy đủ**
+  - Danh sách dự án & Trạng thái Engine (`ProjectsView.tsx`, `EngineStatusCard.tsx`): **Đầy đủ**
+- Trạng thái biên dịch: **PASS (0 lỗi, 0 cảnh báo TypeScript)**. Cung cấp đầy đủ bằng chứng tệp và nội dung thay vì chỉ dựa vào exit code 0.
 
 ---
 
