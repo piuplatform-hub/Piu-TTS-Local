@@ -249,14 +249,25 @@ def run_caddy_validation_and_adapt(
         if is_pilot or "pilot" in template_path.name.lower():
             if not upstreams:
                 return False, "Security Violation: No reverse proxy upstreams found in adapted Pilot configuration.", {}
+
+            # Security Invariant: Pilot Gateway must proxy EXCLUSIVELY to Sandbox 127.0.0.1:8769.
+            # Regardless of any caller-supplied backend_port, 127.0.0.1:8769 is the ONLY permitted upstream.
+            REQUIRED_SANDBOX_UPSTREAM = "127.0.0.1:8769"
+
+            # Check 4A: Strict prohibition against Production API (port 8765)
             for u in upstreams:
-                if u != f"127.0.0.1:{backend_port}":
-                    return False, (
-                        f"Security Violation: Pilot Gateway must proxy exclusively to Sandbox (127.0.0.1:{backend_port}). "
-                        f"Forbidden upstream target detected: '{u}'"
-                    ), {}
                 if "8765" in u:
-                    return False, f"Security Violation: Pilot Gateway inadvertently proxies to production API (8765): '{u}'", {}
+                    return False, f"Security Violation: Upstream targets Production API (127.0.0.1:8765)! Detected: '{u}'. Pilot Gateway is strictly prohibited from proxying to Production.", {}
+
+            # Check 4B: Strict prohibition against multiple/split upstreams
+            unique_upstreams = set(upstreams)
+            if len(unique_upstreams) > 1:
+                return False, f"Security Violation: Multiple or split upstreams detected in Pilot Gateway: {sorted(list(unique_upstreams))}. Only single upstream 127.0.0.1:8769 is permitted.", {}
+
+            # Check 4C: Strict match with Sandbox upstream
+            for u in upstreams:
+                if u != REQUIRED_SANDBOX_UPSTREAM:
+                    return False, f"Security Violation: Upstream '{u}' is outside Sandbox. Pilot Gateway must proxy exclusively to Sandbox (127.0.0.1:8769).", {}
 
         return True, f"Caddy validate and adapt succeeded. Upstreams verified: {sorted(list(set(upstreams)))}", adapted_json
 

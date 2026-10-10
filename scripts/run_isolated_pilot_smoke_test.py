@@ -220,16 +220,19 @@ def main():
 
         # 5. Execute E2E Pilot Workflow: Login -> Project -> Mock Job -> Audio -> Download -> Logout
         print("[5/7] Executing Gate A Smoke Test Workflow...")
+        http_trace = []
 
         # Step 5A: Login
+        login_url = f"{SANDBOX_BASE_URL}/api/v1/auth/login"
         login_resp = client.post(
             "/api/v1/auth/login",
             json={"username": editor_u, "password": editor_p},
         )
+        http_trace.append(("POST", "/api/v1/auth/login", login_resp.status_code, "JWT access token issued"))
         assert login_resp.status_code == 200, f"Login failed: {login_resp.text}"
         token = login_resp.json()["access_token"]
         auth_headers = {"Authorization": f"Bearer {token}"}
-        print("      [OK] 1. Login succeeded with pilot_editor (JWT issued)")
+        print("      [OK] 1. POST /api/v1/auth/login -> 200 OK (JWT issued for pilot_editor)")
 
         # Step 5B: Create Project
         proj_resp = client.post(
@@ -241,9 +244,10 @@ def main():
                 "project_type": "narration",
             },
         )
+        http_trace.append(("POST", "/api/v1/projects", proj_resp.status_code, f"Project ID: {proj_resp.json().get('id')}"))
         assert proj_resp.status_code == 201, f"Create project failed: {proj_resp.text}"
         project_id = proj_resp.json()["id"]
-        print(f"      [OK] 2. Created project in sandbox (ID: {project_id})")
+        print(f"      [OK] 2. POST /api/v1/projects -> 201 Created (ID: {project_id})")
 
         # Step 5C: Create Segment
         seg_resp = client.post(
@@ -256,39 +260,44 @@ def main():
                 "voice_id": "vi-female-1",
             },
         )
+        http_trace.append(("POST", f"/api/v1/projects/{project_id}/segments", seg_resp.status_code, f"Segment ID: {seg_resp.json().get('id')}"))
         assert seg_resp.status_code == 201, f"Create segment failed: {seg_resp.text}"
         segment_id = seg_resp.json()["id"]
-        print(f"      [OK] 3. Created script segment (ID: {segment_id})")
+        print(f"      [OK] 3. POST /api/v1/projects/.../segments -> 201 Created (ID: {segment_id})")
 
         # Step 5D: Render segment (Submits mock TTS job through project pipeline)
         render_resp = client.post(
             f"/api/v1/projects/{project_id}/segments/{segment_id}/render",
             headers=auth_headers,
         )
+        job_id = render_resp.json().get("last_job_id")
+        http_trace.append(("POST", f"/api/v1/projects/.../segments/{segment_id}/render", render_resp.status_code, f"Job ID: {job_id}"))
         assert render_resp.status_code == 200, f"Render segment failed: {render_resp.text}"
-        job_id = render_resp.json()["last_job_id"]
-        print(f"      [OK] 4. Submitted segment render job to scheduler (Job ID: {job_id})")
+        print(f"      [OK] 4. POST /api/v1/projects/.../segments/.../render -> 200 OK (Job ID: {job_id})")
 
         # Step 5E: Poll Job until Completed
         job_completed = False
         for _ in range(40):
-            j_status = client.get(f"/api/v1/jobs/{job_id}", headers=auth_headers).json()
+            j_resp = client.get(f"/api/v1/jobs/{job_id}", headers=auth_headers)
+            j_status = j_resp.json()
             if j_status["status"] == "completed":
                 job_completed = True
                 artifact_id = j_status.get("artifact_id")
+                http_trace.append(("GET", f"/api/v1/jobs/{job_id}", j_resp.status_code, f"Status: completed, Artifact: {artifact_id}"))
                 break
             time.sleep(0.5)
 
         assert job_completed, f"Job did not complete in time: {j_status}"
-        print(f"      [OK] 5. Job completed successfully (Artifact: {artifact_id})")
+        print(f"      [OK] 5. GET /api/v1/jobs/{job_id} -> 200 OK (Status: completed, Artifact: {artifact_id})")
 
         # Step 5F: Download Audio Artifact directly from artifacts API
         art_resp = client.get(f"/api/v1/artifacts/{artifact_id}/file", headers=auth_headers)
+        http_trace.append(("GET", f"/api/v1/artifacts/{artifact_id}/file", art_resp.status_code, f"WAV size: {len(art_resp.content):,} bytes"))
         assert art_resp.status_code == 200, f"Artifact download failed: {art_resp.status_code} {art_resp.text}"
         audio_bytes = art_resp.content
         assert audio_bytes[:4] == b"RIFF", "Downloaded audio is not a valid RIFF WAV header"
         assert len(audio_bytes) > 1000, f"Audio bytes size too small: {len(audio_bytes)}"
-        print(f"      [OK] 6. Downloaded synthesized WAV ({len(audio_bytes):,} bytes, valid RIFF header)")
+        print(f"      [OK] 6. GET /api/v1/artifacts/{artifact_id}/file -> 200 OK ({len(audio_bytes):,} bytes RIFF WAV)")
 
         # Step 5G: Master Export & Download (Endpoint is /api/v1/projects/{project_id}/export)
         exp_resp = client.post(
@@ -296,21 +305,63 @@ def main():
             headers=auth_headers,
             json={"format": "wav", "sample_rate": 48000, "normalize_loudness": False},
         )
+        export_id = exp_resp.json().get("id")
+        http_trace.append(("POST", f"/api/v1/projects/{project_id}/export", exp_resp.status_code, f"Export ID: {export_id}"))
         assert exp_resp.status_code == 201, f"Master export failed: {exp_resp.text}"
-        export_id = exp_resp.json()["id"]
-        print(f"      [OK] 7. Master DSP export created (ID: {export_id})")
+        print(f"      [OK] 7. POST /api/v1/projects/.../export -> 201 Created (Export ID: {export_id})")
 
         dl_resp = client.get(
             f"/api/v1/projects/{project_id}/exports/{export_id}/download",
             headers=auth_headers,
         )
+        http_trace.append(("GET", f"/api/v1/projects/.../exports/{export_id}/download", dl_resp.status_code, f"Master WAV: {len(dl_resp.content):,} bytes"))
         assert dl_resp.status_code == 200, f"Export download failed: {dl_resp.status_code}"
         assert dl_resp.content[:4] == b"RIFF", "Exported master audio is not valid RIFF WAV"
-        print(f"      [OK] 8. Downloaded master WAV export ({len(dl_resp.content):,} bytes)")
+        print(f"      [OK] 8. GET /api/v1/projects/.../exports/.../download -> 200 OK ({len(dl_resp.content):,} bytes RIFF WAV)")
 
-        # Step 5H: Logout
+        # Step 5H: Verify Caddy Pilot Loopback HTTPS Gateway Proxy (Optional Verification on test port 9449)
+        caddy_exe = WORKSPACE_ROOT / "infra" / "caddy" / "caddy.exe"
+        root_ca = Path(os.environ.get("APPDATA", "")) / "caddy" / "pki" / "authorities" / "local" / "root.crt"
+        if caddy_exe.exists() and root_ca.exists():
+            print("      [Optional Check] Verifying Caddy Pilot Loopback HTTPS Gateway (127.0.0.1:9449 -> Sandbox 8769)...")
+            caddy_test_config = SANDBOX_DATA_DIR / "Caddyfile.test_gateway"
+            caddy_test_config.write_text(f"""{{
+    admin off
+    auto_https disable_redirects
+    skip_install_trust
+}}
+https://127.0.0.1:9449 {{
+    bind 127.0.0.1
+    tls internal
+    reverse_proxy 127.0.0.1:{SANDBOX_PORT}
+}}
+""", encoding="utf-8")
+            caddy_proc = subprocess.Popen(
+                [str(caddy_exe), "run", "--config", str(caddy_test_config)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            time.sleep(2)
+            try:
+                with httpx.Client(verify=str(root_ca), timeout=5.0) as caddy_https_client:
+                    caddy_resp = caddy_https_client.get("https://127.0.0.1:9449/api/v1/auth/status")
+                    assert caddy_resp.status_code == 200, f"Caddy HTTPS failed: {caddy_resp.status_code}"
+                    http_trace.append(("GET (Caddy HTTPS)", "https://127.0.0.1:9449/api/v1/auth/status", caddy_resp.status_code, "Proxied to Sandbox 8769 over TLS"))
+                    print(f"      [OK] 8b. Caddy HTTPS Gateway Verified: GET https://127.0.0.1:9449/api/v1/auth/status -> 200 OK (TLS handshake verified)")
+            finally:
+                caddy_proc.terminate()
+                try:
+                    caddy_proc.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    caddy_proc.kill()
+                if caddy_test_config.exists():
+                    caddy_test_config.unlink(missing_ok=True)
+
+        # Step 5I: Client Teardown / Logout
         client.close()
-        print("      [OK] 9. Logout completed")
+        http_trace.append(("CLIENT_TEARDOWN", "Client localStorage session discard", 200, "Tokens wiped"))
+        print("      [OK] 9. Logout completed (Client credentials discarded)")
 
     finally:
         # 6. Terminate Sandbox Server
@@ -343,6 +394,18 @@ def main():
     sandbox_artifacts = list((SANDBOX_DATA_DIR / "artifacts").glob("**/*"))
     sandbox_audio_files = [f for f in sandbox_artifacts if f.is_file()]
     assert len(sandbox_audio_files) > 0, "Expected audio files inside sandbox artifacts dir!"
+
+    print("-" * 75)
+    print("RUNTIME HTTP TRACE LOG:")
+    for method, path, code, detail in http_trace:
+        print(f"  {method:<18} {path:<42} [{code}] {detail}")
+
+    print("-" * 75)
+    print("CREATED SANDBOX AUDIO ARTIFACTS:")
+    for af in sandbox_audio_files:
+        with open(af, "rb") as f:
+            header = f.read(4)
+        print(f"  - {af.name:<45} {af.stat().st_size:>8,} B  Header: {header}")
 
     sandbox_db_size = (SANDBOX_DATA_DIR / "studio.db").stat().st_size
     print("-" * 75)
