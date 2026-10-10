@@ -164,6 +164,22 @@ def validate_parameters(
     return (len(errors) == 0, errors)
 
 
+def extract_upstreams(obj) -> list[str]:
+    """Recursively extracts all reverse_proxy upstream dial targets from adapted Caddy JSON."""
+    dials = []
+    if isinstance(obj, dict):
+        if obj.get("handler") == "reverse_proxy":
+            for u in obj.get("upstreams", []):
+                if isinstance(u, dict) and "dial" in u:
+                    dials.append(u["dial"])
+        for v in obj.values():
+            dials.extend(extract_upstreams(v))
+    elif isinstance(obj, list):
+        for item in obj:
+            dials.extend(extract_upstreams(item))
+    return dials
+
+
 def run_caddy_validation_and_adapt(
     caddy_exe: Path,
     template_path: Path,
@@ -171,7 +187,8 @@ def run_caddy_validation_and_adapt(
     lan_hostname: str,
     approved_subnet: str,
     lan_port: int,
-    backend_port: int = 8765,
+    backend_port: int = 8769,
+    is_pilot: bool = False,
 ) -> tuple[bool, str, dict]:
     """Generates a temporary Caddyfile and verifies syntax and JSON adaptation."""
     if not caddy_exe.exists():
@@ -227,7 +244,21 @@ def run_caddy_validation_and_adapt(
                 if listener == f"http://{lan_ip}:{lan_port}" or ":80" in listener:
                     return False, f"Security Violation: Plaintext HTTP listener found: {listener}", {}
 
-        return True, "Caddy validate and adapt succeeded with zero wildcard/unencrypted listeners.", adapted_json
+        # 4. Upstream isolation assertions
+        upstreams = extract_upstreams(adapted_json)
+        if is_pilot or "pilot" in template_path.name.lower():
+            if not upstreams:
+                return False, "Security Violation: No reverse proxy upstreams found in adapted Pilot configuration.", {}
+            for u in upstreams:
+                if u != f"127.0.0.1:{backend_port}":
+                    return False, (
+                        f"Security Violation: Pilot Gateway must proxy exclusively to Sandbox (127.0.0.1:{backend_port}). "
+                        f"Forbidden upstream target detected: '{u}'"
+                    ), {}
+                if "8765" in u:
+                    return False, f"Security Violation: Pilot Gateway inadvertently proxies to production API (8765): '{u}'", {}
+
+        return True, f"Caddy validate and adapt succeeded. Upstreams verified: {sorted(list(set(upstreams)))}", adapted_json
 
 
 def main():
@@ -236,10 +267,11 @@ def main():
     parser.add_argument("--lan-hostname", default=os.environ.get("LAN_HOSTNAME", ""), help="Target LAN hostname")
     parser.add_argument("--subnet", default=os.environ.get("STUDIO_APPROVED_SUBNET", ""), help="Approved studio subnet CIDR")
     parser.add_argument("--lan-port", type=int, default=int(os.environ.get("LAN_PORT", "9443")), help="HTTPS Gateway Port")
-    parser.add_argument("--backend-port", type=int, default=int(os.environ.get("BACKEND_PORT", "8765")), help="FastAPI Backend Port")
+    parser.add_argument("--backend-port", type=int, default=int(os.environ.get("BACKEND_PORT", "8769")), help="Sandbox/Backend Port (Default 8769 for Pilot)")
     parser.add_argument("--root-ca", default="", help="Path to Caddy Root CA certificate")
     parser.add_argument("--caddy-exe", default="infra/caddy/caddy.exe", help="Path to Caddy executable")
-    parser.add_argument("--template", default="infra/caddy/Caddyfile.lan.template", help="Path to Caddyfile LAN template")
+    parser.add_argument("--template", default="infra/caddy/Caddyfile.pilot.template", help="Path to Caddyfile template")
+    parser.add_argument("--pilot", action="store_true", default=True, help="Enforce pilot sandbox upstream isolation (127.0.0.1:8769)")
 
     args = parser.parse_args()
 
@@ -285,6 +317,7 @@ def main():
         approved_subnet=args.subnet,
         lan_port=args.lan_port,
         backend_port=args.backend_port,
+        is_pilot=args.pilot,
     )
 
     if not caddy_ok:

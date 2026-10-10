@@ -1,0 +1,101 @@
+{
+	# ==============================================================================
+	# AI VOICE STUDIO — PHASE 5B GATE A HARDENED LAN PILOT GATEWAY TEMPLATE
+	# ==============================================================================
+	# STATUS: UNEXECUTED DEPLOYMENT TEMPLATE ONLY — NOT ACTIVE ON WORKSTATION
+	#
+	# GOVERNANCE & SECURITY HARDENING:
+	# 1. Strictly HTTPS-Only: No unencrypted HTTP port is opened.
+	# 2. Upstream Strict Isolation: Exclusively proxies to Sandbox at 127.0.0.1:8769.
+	#    ABSOLUTELY FORBIDDEN to proxy to production API at 127.0.0.1:8765.
+	# 3. Fail-Closed Default: If {$LAN_IP} is unset, binds safely to 127.0.0.1 loopback.
+	# 4. Explicit TLS Identity: Uses fixed internal TLS authority; on_demand is REMOVED.
+	# 5. Strict Network Access: Only approved studio subnet/devices allowed.
+	# 6. OS Trust Protection: skip_install_trust prevents system root store modification.
+	# 7. Actual LAN Activation: REMAINS BLOCKED pending Product Owner authorization.
+	# ==============================================================================
+
+	# Disable administrative API socket (Attack surface elimination)
+	admin off
+
+	# Disable automatic redirects (Single HTTPS port deployment)
+	auto_https disable_redirects
+
+	# Prevent Caddy from attempting to install CA certificates into Windows OS / Browser trust stores
+	skip_install_trust
+}
+
+# ------------------------------------------------------------------------------
+# HARDENED HTTPS LAN PILOT GATEWAY (ISOLATED SANDBOX PROXYING ONLY)
+# ------------------------------------------------------------------------------
+https://{$LAN_HOSTNAME:studio.local}:{$LAN_PORT:9443}, https://{$LAN_IP:127.0.0.1}:{$LAN_PORT:9443} {
+	# Explicit IP binding — Fail-closed to 127.0.0.1 if LAN_IP is undefined
+	bind {$LAN_IP:127.0.0.1}
+
+	# Explicit Internal TLS (Fixed SAN matching LAN Hostname & IP; NO on_demand)
+	tls internal
+
+	# Production Edge Security Headers (OWASP Top 10 Aligned)
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' ws: wss:; font-src 'self' data:;"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
+
+	# Approved Studio Subnet & Client Device Access Control
+	@trusted_studio_clients {
+		remote_ip 127.0.0.1/32 {$STUDIO_APPROVED_SUBNET:192.168.1.0/24}
+	}
+	@untrusted_studio_clients not remote_ip 127.0.0.1/32 {$STUDIO_APPROVED_SUBNET:192.168.1.0/24}
+
+	handle @untrusted_studio_clients {
+		respond "Access Denied: Client IP not in approved studio network" 403 {
+			close
+		}
+	}
+
+	# --------------------------------------------------------------------------
+	# Real-Time Server-Sent Events (SSE) Streaming Route (SANDBOX ONLY)
+	# Mandatory: flush_interval -1 prevents proxy buffering of live audio progress
+	# Upstream target: STRICTLY 127.0.0.1:8769 (PILOT SANDBOX BACKEND)
+	# --------------------------------------------------------------------------
+	@sse_endpoints path /api/v1/jobs/*/events
+	handle @sse_endpoints {
+		reverse_proxy 127.0.0.1:8769 {
+			header_up Host {upstream_hostport}
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+			flush_interval -1
+		}
+	}
+
+	# --------------------------------------------------------------------------
+	# Core Application & API Proxy to Sandbox Backend (SANDBOX ONLY)
+	# Upstream target: STRICTLY 127.0.0.1:8769 (PILOT SANDBOX BACKEND)
+	# --------------------------------------------------------------------------
+	handle {
+		reverse_proxy 127.0.0.1:8769 {
+			header_up Host {upstream_hostport}
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+
+	# --------------------------------------------------------------------------
+	# Sanitized Structured JSON Access Logging
+	# Rotates at 20MB with 10 retention files; credentials strictly omitted
+	# --------------------------------------------------------------------------
+	log {
+		output file D:/AIVoiceStudioData/logs/caddy_pilot_access.log {
+			roll_size 20mb
+			roll_keep 10
+		}
+		format json
+	}
+}
