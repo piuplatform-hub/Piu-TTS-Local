@@ -18,6 +18,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import secrets
 import sys
 import time
 
@@ -106,7 +107,7 @@ async def run_acceptance_pipeline():
             # Check if any user exists or create QA user
             user = User(
                 username="acceptance_qa",
-                password_hash=hash_password("AcceptancePassword123!"),
+                password_hash=hash_password(secrets.token_urlsafe(32)),
                 role="admin",
                 is_active=True,
             )

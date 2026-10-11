@@ -21,6 +21,7 @@ import json
 import math
 import os
 from pathlib import Path
+import secrets
 import sys
 import wave
 
@@ -171,22 +172,36 @@ async def main():
     print("\n[1/7] Khởi tạo Cơ sở Dữ liệu & Schema AI Voice Studio...")
     await database.init_db()
 
-    # Create test user
+    # Prepare test user (ephemeral sandbox or explicit environment variables)
+    qa_username_env = os.getenv("STUDIO_QA_USERNAME")
+    qa_password_env = os.getenv("STUDIO_QA_PASSWORD")
+    is_ephemeral_user = False
+
     async with database.AsyncSessionLocal() as session:
-        stmt_u = select(User).where(User.username == "pilot_engineer_e2e")
-        res_u = await session.execute(stmt_u)
-        test_user = res_u.scalar_one_or_none()
-        if not test_user:
+        if qa_username_env and qa_password_env:
+            stmt_u = select(User).where(User.username == qa_username_env)
+            res_u = await session.execute(stmt_u)
+            test_user = res_u.scalar_one_or_none()
+            if not test_user:
+                raise RuntimeError(f"Cấu hình lỗi: Không tìm thấy tài khoản '{qa_username_env}' được chỉ định qua STUDIO_QA_USERNAME.")
+            print(f"  ✓ Sử dụng tài khoản từ biến môi trường: {test_user.username} (ID: {test_user.id})")
+        elif qa_username_env or qa_password_env:
+            raise RuntimeError("Cấu hình lỗi: Vui lòng cung cấp đồng thời cả STUDIO_QA_USERNAME và STUDIO_QA_PASSWORD.")
+        else:
+            # Generate high-entropy ephemeral sandbox user
+            sandbox_username = f"sandbox_clone_{secrets.token_hex(4)}"
+            sandbox_password = f"P@{secrets.token_urlsafe(24)}!9a"
             test_user = User(
-                username="pilot_engineer_e2e",
-                password_hash=hash_password("Password12345!"),
+                username=sandbox_username,
+                password_hash=hash_password(sandbox_password),
                 role="editor",
                 is_active=True,
             )
             session.add(test_user)
             await session.commit()
             await session.refresh(test_user)
-        print(f"  ✓ Người dùng thử nghiệm: {test_user.username} (ID: {test_user.id}, Role: {test_user.role})")
+            is_ephemeral_user = True
+            print(f"  ✓ Khởi tạo tài khoản sandbox tạm: {test_user.username} (ID: {test_user.id}, Role: {test_user.role})")
 
     # 2. Discover and start VieNeu worker
     print("\n[2/7] Khởi động Isolated VieNeu-TTS Worker qua ProcessSupervisor...")
@@ -507,6 +522,17 @@ async def main():
     finally:
         print("Dọn dẹp và dừng supervisor processes...")
         await supervisor.stop_all()
+
+        if is_ephemeral_user and test_user:
+            try:
+                async with database.AsyncSessionLocal() as session:
+                    db_u = await session.get(User, test_user.id)
+                    if db_u:
+                        await session.delete(db_u)
+                        await session.commit()
+                        print(f"  ✓ Đã dọn dẹp tài khoản sandbox tạm: {test_user.username}")
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":

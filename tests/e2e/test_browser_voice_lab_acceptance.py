@@ -23,6 +23,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import secrets
 import sqlite3
 import sys
 import time
@@ -103,25 +104,42 @@ async def run_voice_lab_acceptance():
     assert REF_A.exists(), f"Ref A not found: {REF_A}"
     assert REF_B.exists(), f"Ref B not found: {REF_B}"
 
-    # 1. Ensure test user in database
+    # 1. Prepare test user in SQLite (ephemeral sandbox or environment variables)
     print("\n[Step 0] Chuẩn bị tài khoản kiểm thử cục bộ trong SQLite...")
     await database.init_db()
+
+    qa_username = os.getenv("STUDIO_QA_USERNAME")
+    qa_password = os.getenv("STUDIO_QA_PASSWORD")
+    is_ephemeral_user = False
+    user_id = None
+
     async with database.AsyncSessionLocal() as session:
         from sqlalchemy import select
-        stmt = select(User).where(User.username == "pilot_engineer_e2e")
-        res = await session.execute(stmt)
-        user = res.scalar_one_or_none()
-        if not user:
+        if qa_username and qa_password:
+            stmt = select(User).where(User.username == qa_username)
+            res = await session.execute(stmt)
+            user = res.scalar_one_or_none()
+            if not user:
+                raise RuntimeError(f"Cấu hình lỗi: Không tìm thấy tài khoản '{qa_username}' được chỉ định qua STUDIO_QA_USERNAME.")
+            user_id = user.id
+            print(f"  ✓ Sử dụng tài khoản từ biến môi trường: {user.username} (ID: {user.id})")
+        elif qa_username or qa_password:
+            raise RuntimeError("Cấu hình lỗi: Vui lòng cung cấp đồng thời cả STUDIO_QA_USERNAME và STUDIO_QA_PASSWORD.")
+        else:
+            qa_username = f"sandbox_acc_{secrets.token_hex(4)}"
+            qa_password = f"P@{secrets.token_urlsafe(20)}!Aa1"
             user = User(
-                username="pilot_engineer_e2e",
-                password_hash=hash_password("Password12345!"),
+                username=qa_username,
+                password_hash=hash_password(qa_password),
                 role="editor",
                 is_active=True,
             )
             session.add(user)
             await session.commit()
             await session.refresh(user)
-        print(f"  ✓ User sẵn sàng: {user.username} (ID: {user.id})")
+            user_id = user.id
+            is_ephemeral_user = True
+            print(f"  ✓ Khởi tạo tài khoản sandbox tạm: {user.username} (ID: {user.id})")
 
     # 2. Start FastAPI Server
     print(f"\n[Step 1] Khởi chạy FastAPI Server tại {BASE_URL}...")
@@ -154,9 +172,9 @@ async def run_voice_lab_acceptance():
             await page.goto(BASE_URL)
             await page.wait_for_load_state("networkidle")
 
-            # Check if login form is present
-            await page.fill("input[type='text']", "pilot_engineer_e2e")
-            await page.fill("input[type='password']", "Password12345!")
+            # Fill login credentials
+            await page.fill("input[type='text']", qa_username)
+            await page.fill("input[type='password']", qa_password)
             await page.screenshot(path=str(SCREENSHOT_DIR / "01_login_credentials_filled.png"))
 
             # Click login button
@@ -422,6 +440,17 @@ async def run_voice_lab_acceptance():
     finally:
         print("Dừng server FastAPI thử nghiệm...")
         await server_mgr.stop()
+
+        if is_ephemeral_user and user_id:
+            try:
+                async with database.AsyncSessionLocal() as session:
+                    db_u = await session.get(User, user_id)
+                    if db_u:
+                        await session.delete(db_u)
+                        await session.commit()
+                        print(f"  ✓ Đã dọn dẹp tài khoản sandbox tạm: {qa_username}")
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":

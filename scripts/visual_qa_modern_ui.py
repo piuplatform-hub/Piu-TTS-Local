@@ -8,6 +8,7 @@ Captures full-viewport screenshots across target viewports:
 
 import os
 import sys
+import secrets
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 
@@ -17,28 +18,72 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 BASE_URL = "http://127.0.0.1:8765"
 CHROME_PATH = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
 
+# Add repo root to path
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+
 def run_visual_qa():
-    with sync_playwright() as p:
-        browser = p.chromium.launch(
-            executable_path=CHROME_PATH if Path(CHROME_PATH).exists() else None,
-            headless=True,
-        )
+    qa_username = os.getenv("STUDIO_QA_USERNAME")
+    qa_password = os.getenv("STUDIO_QA_PASSWORD")
+    is_ephemeral = False
+    ephemeral_user_id = None
 
-        # -------------------------------------------------------------
-        # 1. PRIMARY VIEWPORT: 1920x1080
-        # -------------------------------------------------------------
-        print("\n=== Capturing 1920x1080 Screens ===")
-        ctx_fhd = browser.new_context(viewport={"width": 1920, "height": 1080})
-        page = ctx_fhd.new_page()
+    if not qa_username or not qa_password:
+        try:
+            import asyncio
+            from apps.server.src import database
+            from apps.server.src.models.user import User
+            from apps.server.src.core.security import hash_password
 
-        # Login
-        page.goto(BASE_URL, wait_until="networkidle")
-        page.wait_for_timeout(500)
-        page.fill("input[type='text']", "pilot_engineer_e2e")
-        page.fill("input[type='password']", "Password12345!")
-        page.click("button:has-text('Đăng Nhập')")
-        page.wait_for_selector("text=Dự Án Studio", timeout=10000)
-        page.wait_for_timeout(600)
+            qa_username = f"sandbox_vqa_{secrets.token_hex(4)}"
+            qa_password = f"P@{secrets.token_urlsafe(20)}!Aa1"
+
+            async def _create_sandbox():
+                await database.init_db()
+                async with database.AsyncSessionLocal() as session:
+                    u = User(
+                        username=qa_username,
+                        password_hash=hash_password(qa_password),
+                        role="editor",
+                        is_active=True,
+                    )
+                    session.add(u)
+                    await session.commit()
+                    await session.refresh(u)
+                    return u.id
+
+            ephemeral_user_id = asyncio.run(_create_sandbox())
+            is_ephemeral = True
+            print(f"  ✓ Đã khởi tạo tài khoản sandbox tạm: {qa_username}")
+        except Exception:
+            print("LỖI CẤU HÌNH: Thiếu biến môi trường STUDIO_QA_USERNAME và STUDIO_QA_PASSWORD.", file=sys.stderr)
+            print("Vui lòng thiết lập biến môi trường hoặc chạy trong môi trường có quyền truy cập SQLite sandbox.", file=sys.stderr)
+            sys.exit(1)
+
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                executable_path=CHROME_PATH if Path(CHROME_PATH).exists() else None,
+                headless=True,
+            )
+
+            # -------------------------------------------------------------
+            # 1. PRIMARY VIEWPORT: 1920x1080
+            # -------------------------------------------------------------
+            print("\n=== Capturing 1920x1080 Screens ===")
+            ctx_fhd = browser.new_context(viewport={"width": 1920, "height": 1080})
+            page = ctx_fhd.new_page()
+
+            # Login
+            page.goto(BASE_URL, wait_until="networkidle")
+            page.wait_for_timeout(500)
+            page.fill("input[type='text']", qa_username)
+            page.fill("input[type='password']", qa_password)
+            page.click("button:has-text('Đăng Nhập')")
+            page.wait_for_selector("text=Dự Án Studio", timeout=10000)
+            page.wait_for_timeout(600)
 
         # Screen 1: Projects Workstation
         shot_01 = OUTPUT_DIR / "01_projects_workstation_1920x1080.png"
@@ -122,8 +167,8 @@ def run_visual_qa():
         page_lap = ctx_laptop.new_page()
         page_lap.goto(BASE_URL, wait_until="networkidle")
         page_lap.wait_for_timeout(500)
-        page_lap.fill("input[type='text']", "pilot_engineer_e2e")
-        page_lap.fill("input[type='password']", "Password12345!")
+        page_lap.fill("input[type='text']", qa_username)
+        page_lap.fill("input[type='password']", qa_password)
         page_lap.click("button:has-text('Đăng Nhập')")
         page_lap.wait_for_selector("text=Dự Án Studio", timeout=10000)
 
@@ -144,8 +189,8 @@ def run_visual_qa():
         page_cmp = ctx_compact.new_page()
         page_cmp.goto(BASE_URL, wait_until="networkidle")
         page_cmp.wait_for_timeout(500)
-        page_cmp.fill("input[type='text']", "pilot_engineer_e2e")
-        page_cmp.fill("input[type='password']", "Password12345!")
+        page_cmp.fill("input[type='text']", qa_username)
+        page_cmp.fill("input[type='password']", qa_password)
         page_cmp.click("button:has-text('Đăng Nhập')")
         page_cmp.wait_for_selector("text=Dự Án Studio", timeout=10000)
 
@@ -159,7 +204,27 @@ def run_visual_qa():
         ctx_compact.close()
 
         browser.close()
-    print("\nVisual QA completed successfully! All screenshots saved.")
+        print("\nVisual QA completed successfully! All screenshots saved.")
+
+    finally:
+        if is_ephemeral and ephemeral_user_id:
+            try:
+                import asyncio
+                from apps.server.src import database
+                from apps.server.src.models.user import User
+
+                async def _cleanup_sandbox():
+                    async with database.AsyncSessionLocal() as session:
+                        u = await session.get(User, ephemeral_user_id)
+                        if u:
+                            await session.delete(u)
+                            await session.commit()
+                            print(f"  ✓ Đã dọn dẹp tài khoản sandbox: {qa_username}")
+
+                asyncio.run(_cleanup_sandbox())
+            except Exception:
+                pass
+
 
 if __name__ == "__main__":
     run_visual_qa()

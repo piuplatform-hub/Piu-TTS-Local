@@ -181,12 +181,20 @@ def test_phase5b1_real_browser_caddy_https_journey():
 
         asyncio.run(seed_data())
 
-        # 4. Start FastAPI backend on 127.0.0.1:8765
+        # 4. Start FastAPI backend on isolated ephemeral port to prevent collisions with active servers
+        import socket
+        def find_free_port():
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(('127.0.0.1', 0))
+                return s.getsockname()[1]
+
+        backend_port = find_free_port()
         py_exe = sys.executable
         env = os.environ.copy()
         env["STUDIO_DATA_DIR"] = str(tmp_path)
         env["HOST"] = "127.0.0.1"
-        env["PORT"] = "8765"
+        env["PORT"] = str(backend_port)
+        env["BACKEND_PORT"] = str(backend_port)
 
         p_fastapi = subprocess.Popen(
             [py_exe, "-m", "apps.server.src.main"],
@@ -199,17 +207,21 @@ def test_phase5b1_real_browser_caddy_https_journey():
         fastapi_ready = False
         for _ in range(50):
             try:
-                with urllib.request.urlopen("http://127.0.0.1:8765/api/v1/health", timeout=0.5) as r:
+                with urllib.request.urlopen(f"http://127.0.0.1:{backend_port}/api/v1/health", timeout=0.5) as r:
                     if r.status == 200:
                         fastapi_ready = True
                         break
             except Exception:
                 time.sleep(0.15)
-        assert fastapi_ready, "FastAPI failed to become responsive on 127.0.0.1:8765"
+        assert fastapi_ready, f"FastAPI failed to become responsive on 127.0.0.1:{backend_port}"
 
-        # 5. Start Caddy reverse proxy on 127.0.0.1:9443
+        # 5. Start Caddy reverse proxy on 127.0.0.1:9443 using isolated test Caddyfile
+        test_caddyfile = tmp_path / "Caddyfile"
+        caddy_cfg = CADDYFILE.read_text(encoding="utf-8").replace("127.0.0.1:8765", f"127.0.0.1:{backend_port}")
+        test_caddyfile.write_text(caddy_cfg, encoding="utf-8")
+
         p_caddy = subprocess.Popen(
-            [str(CADDY_EXE), "run", "--config", str(CADDYFILE)],
+            [str(CADDY_EXE), "run", "--config", str(test_caddyfile)],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
