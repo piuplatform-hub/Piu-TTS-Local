@@ -8,10 +8,10 @@ interface SettingsViewProps {
 
 export const SettingsView: React.FC<SettingsViewProps> = ({ user }) => {
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
+    <div className="space-y-6 max-w-[1680px] mx-auto select-none">
       {/* Page Header */}
-      <div>
-        <h2 className="text-xl font-bold tracking-tight text-white">Cài Đặt Hệ Thống</h2>
+      <div className="pb-4 border-b border-slate-800/80">
+        <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-white">Cài Đặt Hệ Thống</h2>
         <p className="text-xs text-slate-400 mt-1">
           Quản lý tài khoản cục bộ, kiến trúc phân phối bảo mật và thông số âm thanh chuẩn.
         </p>

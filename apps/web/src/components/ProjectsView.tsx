@@ -104,24 +104,24 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({ onSelectProject }) =
   });
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+    <div className="space-y-6 max-w-[1680px] mx-auto select-none">
       {/* Top Banner & Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-slate-800">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 pb-4 border-b border-slate-800/80">
         <div>
-          <h1 className="text-2xl font-bold text-white flex items-center space-x-3">
-            <span className="p-2 rounded-xl bg-purple-500/10 text-purple-400 border border-purple-500/20">
-              <Layers className="w-6 h-6" />
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white flex items-center space-x-3">
+            <span className="p-2 rounded-xl bg-teal-500/10 text-teal-400 border border-teal-500/20">
+              <Layers className="w-5 h-5" />
             </span>
             <span>Không Gian Làm Việc Dự Án (Workstation)</span>
           </h1>
-          <p className="text-sm text-slate-400 mt-1">
+          <p className="text-xs text-slate-400 mt-1">
             Quản lý các dự án sách nói dài tập (Long-form Narration) và kịch truyền thanh nhiều nhân vật (Dialogue Studio)
           </p>
         </div>
 
         <button
           onClick={() => setIsCreateOpen(true)}
-          className="flex items-center space-x-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-sm font-semibold shadow-lg shadow-emerald-950/40 transition-all self-start sm:self-auto"
+          className="flex items-center space-x-2 px-4 py-2 bg-teal-600 hover:bg-teal-500 text-white rounded-xl text-xs font-semibold shadow-lg shadow-teal-950/40 transition-all self-start sm:self-auto"
         >
           <FolderPlus className="w-4 h-4" />
           <span>Tạo Dự Án Mới</span>
@@ -131,23 +131,23 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({ onSelectProject }) =
       {/* Filter and Search Bar */}
       <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
         <div className="relative flex-1 max-w-md">
-          <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             type="text"
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Tìm kiếm dự án theo tiêu đề..."
-            className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-9 pr-4 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-purple-500 transition-colors"
+            className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-9 pr-4 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-teal-500 transition-colors"
           />
         </div>
 
         <div className="flex items-center space-x-2">
-          <span className="text-xs text-slate-500">Bộ lọc:</span>
+          <span className="text-xs text-slate-400">Bộ lọc:</span>
           <div className="flex bg-slate-900 p-1 rounded-xl border border-slate-800 text-xs">
             <button
               onClick={() => setFilterType('all')}
               className={`px-3 py-1 rounded-lg transition-colors ${
-                filterType === 'all' ? 'bg-purple-600 text-white font-medium' : 'text-slate-400 hover:text-white'
+                filterType === 'all' ? 'bg-teal-600 text-white font-medium' : 'text-slate-400 hover:text-white'
               }`}
             >
               Tất cả ({projects.length})
@@ -155,7 +155,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({ onSelectProject }) =
             <button
               onClick={() => setFilterType('narration')}
               className={`px-3 py-1 rounded-lg transition-colors ${
-                filterType === 'narration' ? 'bg-purple-600 text-white font-medium' : 'text-slate-400 hover:text-white'
+                filterType === 'narration' ? 'bg-teal-600 text-white font-medium' : 'text-slate-400 hover:text-white'
               }`}
             >
               Sách nói ({projects.filter(p => p.project_type === 'narration').length})
@@ -163,7 +163,7 @@ export const ProjectsView: React.FC<ProjectsViewProps> = ({ onSelectProject }) =
             <button
               onClick={() => setFilterType('dialogue')}
               className={`px-3 py-1 rounded-lg transition-colors ${
-                filterType === 'dialogue' ? 'bg-purple-600 text-white font-medium' : 'text-slate-400 hover:text-white'
+                filterType === 'dialogue' ? 'bg-teal-600 text-white font-medium' : 'text-slate-400 hover:text-white'
               }`}
             >
               Hội thoại ({projects.filter(p => p.project_type === 'dialogue').length})

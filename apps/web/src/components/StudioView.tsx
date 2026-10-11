@@ -532,120 +532,153 @@ export const StudioView: React.FC = () => {
   };
 
   return (
-    <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-      {/* Title & Banner */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-slate-800">
-        <div>
-          <h1 className="text-2xl font-bold text-white tracking-tight flex items-center space-x-2.5">
-            <span>Voice Lab &amp; Speech Studio</span>
-            <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium flex items-center space-x-1">
-              <Zap className="w-3 h-3 text-emerald-400" />
-              <span>Phase 6A Neural Engine</span>
-            </span>
-            {sseConnected && (
-              <span className="text-[11px] px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 flex items-center space-x-1 font-mono">
-                <Radio className="w-3 h-3 animate-pulse" />
-                <span>SSE Live</span>
+    <div className="space-y-6 max-w-[1680px] mx-auto select-none">
+      {/* -------------------------------------------------------------
+          WORKSTATION HEADER (Title, Status Pills & Engine Info)
+          ------------------------------------------------------------- */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-800/80">
+        <div className="space-y-1">
+          <div className="flex items-center space-x-2.5">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-teal-500/10 border border-teal-500/30 text-teal-400">
+              <Zap className="h-5 w-5" />
+            </div>
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white flex items-center space-x-2.5">
+              <span>Voice Lab &amp; Speech Studio</span>
+              <span className="text-xs px-2.5 py-0.5 rounded-full bg-teal-500/10 text-teal-300 border border-teal-500/20 font-medium flex items-center space-x-1">
+                <Sparkles className="w-3 h-3 text-teal-400" />
+                <span>Phase 6A Neural Engine</span>
               </span>
-            )}
-          </h1>
-          <p className="text-xs text-slate-400 mt-1">
-            Phòng thí nghiệm giọng nói AI: Nhân bản giọng chuẩn xác (Zero-shot Cloning), tinh chỉnh ngữ điệu chuyên sâu &amp; thẩm âm đối chiếu A/B.
+              {sseConnected && (
+                <span className="text-[11px] px-2 py-0.5 rounded-full bg-teal-500/10 text-teal-300 border border-teal-500/20 flex items-center space-x-1 font-mono">
+                  <Radio className="w-3 h-3 animate-pulse text-teal-400" />
+                  <span>SSE Live</span>
+                </span>
+              )}
+            </h1>
+          </div>
+          <p className="text-xs text-slate-400">
+            Phòng thí nghiệm giọng nói AI máy trạm: Nhân bản giọng chuẩn xác (Zero-shot Cloning), tinh chỉnh ngữ điệu sâu &amp; thẩm âm đối chiếu A/B.
           </p>
         </div>
 
         {activeEngine && (
-          <div className="flex items-center space-x-2.5 text-xs text-slate-400 bg-slate-900 border border-slate-800 px-3.5 py-2 rounded-xl">
-            <Cpu className="w-4 h-4 text-emerald-400" />
-            <span>Đích: <strong className="text-slate-200 uppercase">{activeEngine.device_target}</strong></span>
+          <div className="flex items-center space-x-2.5 text-xs text-slate-300 bg-slate-900/90 border border-slate-800 px-3.5 py-2 rounded-xl">
+            <Cpu className="w-4 h-4 text-teal-400" />
+            <span>Đích: <strong className="text-slate-100 uppercase">{activeEngine.device_target}</strong></span>
             <span className="text-slate-700">|</span>
-            <span>Mẫu: <strong className="text-slate-200">{activeEngine.id === 'vieneu-tts' ? '48kHz' : activeEngine.id === 'qwen3-tts' ? '24kHz' : '44.1kHz'}</strong></span>
+            <span>Mẫu: <strong className="text-slate-100">{activeEngine.id === 'vieneu-tts' ? '48kHz' : activeEngine.id === 'qwen3-tts' ? '24kHz' : '44.1kHz'}</strong></span>
             <span className="text-slate-700">|</span>
-            <span>Phiên bản: <strong className="text-slate-200">{activeEngine.version}</strong></span>
+            <span>Phiên bản: <strong className="text-teal-400 font-mono">{activeEngine.version}</strong></span>
           </div>
         )}
       </div>
 
-      {/* Main Studio Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Left Column: Input text, Action, Real-time status, A/B Player */}
-        <div className="lg:col-span-2 space-y-5">
-          {/* Quick Prompts */}
-          <div className="flex items-center space-x-2 overflow-x-auto pb-1 text-xs">
-            <span className="text-slate-500 flex-shrink-0 font-medium">Mẫu câu:</span>
-            {SAMPLE_PROMPTS.map((p, idx) => (
-              <button
-                key={idx}
-                onClick={() => {
-                  setText(p.text);
-                  setSelectedLang(p.lang);
-                  if (p.engineHint && engines.some((e) => e.id === p.engineHint)) {
-                    handleEngineChange(p.engineHint);
-                  }
-                }}
-                className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 hover:border-slate-700 whitespace-nowrap transition-colors"
-              >
-                {p.label}
-              </button>
-            ))}
-          </div>
-
-          {/* Text Area */}
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-3 relative">
-            <div className="flex items-center justify-between text-xs text-slate-400">
-              <span className="font-medium">Nội dung văn bản (Text to Synthesize)</span>
-              <span>{text.length} ký tự</span>
-            </div>
-            <textarea
-              rows={6}
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              placeholder="Nhập đoạn văn bản cần chuyển thành giọng nói tại đây..."
-              className="w-full bg-slate-950 border border-slate-800 rounded-xl p-4 text-sm text-slate-100 placeholder-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-colors resize-y leading-relaxed"
-            />
-          </div>
-
-          {/* Action Trigger */}
-          <button
-            onClick={handleGenerate}
-            disabled={submitting || loadingEngines}
-            className="w-full py-3.5 px-6 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 active:from-emerald-700 active:to-teal-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium shadow-xl shadow-emerald-950/40 flex items-center justify-center space-x-2.5 text-sm transition-all"
-          >
-            {submitting ? (
-              <>
-                <RotateCw className="w-4 h-4 animate-spin" />
-                <span>Đang xếp hàng &amp; tổng hợp âm thanh qua AI Worker...</span>
-              </>
-            ) : (
-              <>
-                <Sparkles className="w-4 h-4" />
-                <span>
-                  {synthesisMode === 'clone'
-                    ? 'Nhân bản giọng & Tổng hợp (Synthesize Cloned Speech)'
-                    : 'Tạo giọng nói AI (Synthesize Speech)'}
+      {/* -------------------------------------------------------------
+          MAIN DESKTOP WORKSTATION GRID (2 Columns: 7 / 5 cols)
+          ------------------------------------------------------------- */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        {/* =========================================================
+            LEFT COLUMN: Synthesis Editor, CTA, Progress & A/B Player (7 Cols)
+            ========================================================= */}
+        <div className="lg:col-span-7 space-y-5">
+          {/* Editor Container Card */}
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/90 shadow-xl overflow-hidden flex flex-col">
+            {/* Editor Toolbar */}
+            <div className="flex flex-wrap items-center justify-between border-b border-slate-800/80 px-4 py-2.5 bg-slate-950/60 gap-2">
+              <span className="text-xs font-semibold text-slate-300">
+                Nội dung văn bản (Text to Synthesize)
+              </span>
+              <div className="flex items-center space-x-2 text-xs">
+                <span className="font-mono text-[11px] text-slate-400">
+                  <strong className="text-teal-400">{text.length}</strong> ký tự
                 </span>
-              </>
-            )}
-          </button>
+                <button
+                  type="button"
+                  onClick={() => setText('')}
+                  className="px-2 py-0.5 text-slate-400 hover:text-red-400 rounded hover:bg-slate-800 transition-colors"
+                  title="Xóa trắng văn bản"
+                >
+                  Xóa
+                </button>
+              </div>
+            </div>
+
+            {/* Quick Sample Prompts */}
+            <div className="px-4 py-2 bg-slate-950/30 border-b border-slate-800/60 flex flex-wrap items-center gap-1.5 text-xs">
+              <span className="text-[11px] text-slate-500 mr-1">Mẫu câu:</span>
+              {SAMPLE_PROMPTS.map((p, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => {
+                    setText(p.text);
+                    setSelectedLang(p.lang);
+                    if (p.engineHint && engines.some((e) => e.id === p.engineHint)) {
+                      handleEngineChange(p.engineHint);
+                    }
+                  }}
+                  className="rounded-md border border-slate-800 bg-slate-900 px-2 py-1 text-[11px] text-slate-400 hover:border-teal-500/40 hover:text-teal-300 transition-colors"
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Textarea */}
+            <div className="p-4">
+              <textarea
+                rows={7}
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                placeholder="Nhập đoạn văn bản cần chuyển thành giọng nói tại đây..."
+                className="w-full resize-y rounded-xl border border-slate-800/80 bg-slate-950/80 p-4 font-normal text-sm leading-relaxed text-slate-100 placeholder-slate-600 focus:border-teal-500/60 focus:outline-none focus:ring-1 focus:ring-teal-500/40 transition-all font-sans"
+              />
+            </div>
+
+            {/* Action Trigger in Editor Card */}
+            <div className="p-4 pt-0">
+              <button
+                onClick={handleGenerate}
+                disabled={submitting || loadingEngines}
+                className="w-full py-3.5 px-6 rounded-xl bg-teal-600 hover:bg-teal-500 active:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold shadow-lg shadow-teal-950/40 flex items-center justify-center space-x-2.5 text-sm transition-all"
+              >
+                {submitting ? (
+                  <>
+                    <RotateCw className="w-4 h-4 animate-spin" />
+                    <span>Đang xếp hàng &amp; tổng hợp âm thanh qua AI Worker...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4" />
+                    <span>
+                      {synthesisMode === 'clone'
+                        ? 'Nhân bản giọng & Tổng hợp (Synthesize Cloned Speech)'
+                        : 'Tạo giọng nói AI (Synthesize Speech)'}
+                    </span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
 
           {/* Error Banner */}
           {error && (
-            <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs flex items-start space-x-3">
-              <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+            <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-300 text-xs flex items-start space-x-3">
+              <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0 text-red-400" />
               <div>
-                <p className="font-medium">Yêu cầu không thể thực hiện</p>
-                <p className="mt-0.5 text-red-400/90">{error}</p>
+                <p className="font-semibold text-red-300">Yêu cầu không thể thực hiện</p>
+                <p className="mt-0.5 text-red-400/90 leading-relaxed">{error}</p>
               </div>
             </div>
           )}
 
           {/* Real-time Job Progress Card */}
           {currentJob && (
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
+            <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-2.5">
-                  {currentJob.status === 'completed' && <CheckCircle2 className="w-5 h-5 text-emerald-400" />}
-                  {currentJob.status === 'running' && <RotateCw className="w-5 h-5 text-emerald-400 animate-spin" />}
+                  {currentJob.status === 'completed' && <CheckCircle2 className="w-5 h-5 text-teal-400" />}
+                  {currentJob.status === 'running' && <RotateCw className="w-5 h-5 text-teal-400 animate-spin" />}
                   {currentJob.status === 'preparing' && <RotateCw className="w-5 h-5 text-teal-400 animate-spin" />}
                   {currentJob.status === 'queued' && <Clock className="w-5 h-5 text-amber-400" />}
                   {currentJob.status === 'failed' && <AlertTriangle className="w-5 h-5 text-red-400" />}
@@ -653,9 +686,9 @@ export const StudioView: React.FC = () => {
                   <div>
                     <h3 className="text-sm font-semibold text-white flex items-center space-x-2">
                       <span>Trạng thái:</span>
-                      <span className="uppercase text-emerald-400">{currentJob.status}</span>
+                      <span className="uppercase text-teal-400 font-mono">{currentJob.status}</span>
                       {currentJob.attempt_count !== undefined && currentJob.attempt_count > 0 && (
-                        <span className="text-[10px] text-slate-400 font-normal bg-slate-800 px-2 py-0.5 rounded-full">
+                        <span className="text-[10px] text-slate-300 font-normal bg-slate-800 px-2 py-0.5 rounded-full border border-slate-700">
                           Lần thử: {currentJob.attempt_count}/{currentJob.max_retries || 3}
                         </span>
                       )}
@@ -665,7 +698,7 @@ export const StudioView: React.FC = () => {
                 </div>
 
                 <div className="flex items-center space-x-3">
-                  <span className="text-xs font-mono font-medium text-slate-300">
+                  <span className="text-xs font-mono font-medium text-slate-200">
                     {currentJob.progress_percent}%
                   </span>
                   {['queued', 'preparing', 'running'].includes(currentJob.status) && (
@@ -680,7 +713,7 @@ export const StudioView: React.FC = () => {
                     <button
                       onClick={handleRetry}
                       disabled={submitting}
-                      className="px-2.5 py-1 text-xs rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 transition-colors flex items-center space-x-1"
+                      className="px-2.5 py-1 text-xs rounded-lg bg-teal-600/20 hover:bg-teal-600/30 text-teal-300 border border-teal-500/30 transition-colors flex items-center space-x-1"
                     >
                       <RotateCcw className="w-3 h-3" />
                       <span>Thử lại</span>
@@ -690,14 +723,14 @@ export const StudioView: React.FC = () => {
               </div>
 
               {/* Progress bar */}
-              <div className="w-full bg-slate-950 h-2 rounded-full overflow-hidden border border-slate-800/80">
+              <div className="w-full bg-slate-950 h-2 rounded-full overflow-hidden border border-slate-800">
                 <div
                   className={`h-full transition-all duration-300 ${
                     currentJob.status === 'failed'
                       ? 'bg-red-500'
                       : currentJob.status === 'cancelled'
                       ? 'bg-slate-600'
-                      : 'bg-gradient-to-r from-emerald-500 to-teal-400'
+                      : 'bg-teal-500'
                   }`}
                   style={{ width: `${currentJob.progress_percent}%` }}
                 />
@@ -707,8 +740,8 @@ export const StudioView: React.FC = () => {
               {currentJob.status === 'completed' && currentJob.artifact_id && (
                 <div className="pt-2 border-t border-slate-800/80 space-y-3">
                   <div className="flex items-center justify-between text-xs text-slate-400">
-                    <span className="font-medium text-emerald-400 flex items-center space-x-1.5">
-                      <Volume2 className="w-4 h-4" />
+                    <span className="font-semibold text-teal-400 flex items-center space-x-1.5">
+                      <Volume2 className="w-4 h-4 text-teal-400" />
                       <span>Tệp âm thanh hoàn tất</span>
                     </span>
                     <div className="flex items-center space-x-2">
@@ -733,7 +766,7 @@ export const StudioView: React.FC = () => {
                             });
                           }
                         }}
-                        className="px-2 py-0.5 text-[10px] rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700"
+                        className="px-2.5 py-1 text-xs rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors"
                       >
                         Lưu vào Slot A
                       </button>
@@ -758,7 +791,7 @@ export const StudioView: React.FC = () => {
                             });
                           }
                         }}
-                        className="px-2 py-0.5 text-[10px] rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700"
+                        className="px-2.5 py-1 text-xs rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors"
                       >
                         Lưu vào Slot B
                       </button>
@@ -772,18 +805,18 @@ export const StudioView: React.FC = () => {
 
           {/* Phase 6A: A/B Comparison Player Panel */}
           {(slotA || slotB) && (
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-4">
-              <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+            <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-800/80">
                 <div className="flex items-center space-x-2">
                   <Columns className="w-4 h-4 text-teal-400" />
-                  <h3 className="text-sm font-semibold text-white">Thẩm âm &amp; So sánh A/B (Comparison Player)</h3>
+                  <h3 className="text-sm font-bold text-white">Thẩm âm &amp; So sánh A/B (Comparison Player)</h3>
                 </div>
                 <div className="flex items-center space-x-2">
                   <button
                     onClick={() => setActiveCompareSlot('A')}
-                    className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
+                    className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
                       activeCompareSlot === 'A'
-                        ? 'bg-emerald-600 text-white shadow'
+                        ? 'bg-teal-600 text-white shadow'
                         : 'bg-slate-800 text-slate-400 hover:text-slate-200'
                     }`}
                   >
@@ -791,7 +824,7 @@ export const StudioView: React.FC = () => {
                   </button>
                   <button
                     onClick={() => setActiveCompareSlot('B')}
-                    className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
+                    className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
                       activeCompareSlot === 'B'
                         ? 'bg-teal-600 text-white shadow'
                         : 'bg-slate-800 text-slate-400 hover:text-slate-200'
@@ -804,26 +837,26 @@ export const StudioView: React.FC = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Slot A Card */}
-                <div className={`p-4 rounded-xl border transition-all ${activeCompareSlot === 'A' ? 'bg-emerald-950/20 border-emerald-500/40 ring-1 ring-emerald-500/30' : 'bg-slate-950/60 border-slate-800/80'}`}>
+                <div className={`p-4 rounded-xl border transition-all ${activeCompareSlot === 'A' ? 'bg-teal-950/20 border-teal-500/40 ring-1 ring-teal-500/30' : 'bg-slate-950/60 border-slate-800/80'}`}>
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">Slot A</span>
-                    {slotA && <span className="text-[10px] text-slate-500 font-mono">{slotA.createdAt}</span>}
+                    <span className="text-xs font-bold text-teal-400 uppercase tracking-wider">Slot A</span>
+                    {slotA && <span className="text-[10px] text-slate-400 font-mono">{slotA.createdAt}</span>}
                   </div>
                   {slotA ? (
                     <div className="space-y-3">
-                      <p className="text-xs text-slate-200 font-medium">{slotA.label}</p>
-                      <div className="text-[11px] text-slate-400 space-y-0.5 bg-slate-900/60 p-2 rounded-lg border border-slate-800/60">
-                        <p>Giọng: <span className="text-slate-300 font-mono">{slotA.params.voiceOrRef}</span></p>
-                        <p>Tốc độ (Speed): <span className="text-slate-300 font-mono">{slotA.params.speed}x</span></p>
-                        {slotA.params.temperature !== undefined && <p>Độ biến thiên (Temp): <span className="text-slate-300 font-mono">{slotA.params.temperature}</span></p>}
-                        {slotA.params.topP !== undefined && <p>Top-P / Top-K: <span className="text-slate-300 font-mono">{slotA.params.topP} / {slotA.params.topK}</span></p>}
-                        {slotA.params.repetitionPenalty !== undefined && <p>Chống vấp (Rep. Pen): <span className="text-slate-300 font-mono">{slotA.params.repetitionPenalty}</span></p>}
-                        {slotA.params.presetName && <p>Gợi ý: <span className="text-slate-300 font-mono">{slotA.params.presetName}</span></p>}
+                      <p className="text-xs text-slate-200 font-semibold">{slotA.label}</p>
+                      <div className="text-[11px] text-slate-300 space-y-0.5 bg-slate-900/80 p-2.5 rounded-lg border border-slate-800">
+                        <p>Giọng: <span className="text-teal-300 font-mono">{slotA.params.voiceOrRef}</span></p>
+                        <p>Tốc độ (Speed): <span className="text-slate-200 font-mono">{slotA.params.speed}x</span></p>
+                        {slotA.params.temperature !== undefined && <p>Độ biến thiên (Temp): <span className="text-slate-200 font-mono">{slotA.params.temperature}</span></p>}
+                        {slotA.params.topP !== undefined && <p>Top-P / Top-K: <span className="text-slate-200 font-mono">{slotA.params.topP} / {slotA.params.topK}</span></p>}
+                        {slotA.params.repetitionPenalty !== undefined && <p>Chống vấp (Rep. Pen): <span className="text-slate-200 font-mono">{slotA.params.repetitionPenalty}</span></p>}
+                        {slotA.params.presetName && <p>Gợi ý: <span className="text-slate-200 font-mono">{slotA.params.presetName}</span></p>}
                       </div>
                       <AudioPlayer artifactId={slotA.artifactId} />
                     </div>
                   ) : (
-                    <p className="text-xs text-slate-500 italic py-4 text-center">Chưa có bản thu nào ở Slot A</p>
+                    <p className="text-xs text-slate-500 italic py-6 text-center">Chưa có bản thu nào ở Slot A</p>
                   )}
                 </div>
 
@@ -831,23 +864,23 @@ export const StudioView: React.FC = () => {
                 <div className={`p-4 rounded-xl border transition-all ${activeCompareSlot === 'B' ? 'bg-teal-950/20 border-teal-500/40 ring-1 ring-teal-500/30' : 'bg-slate-950/60 border-slate-800/80'}`}>
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-xs font-bold text-teal-400 uppercase tracking-wider">Slot B</span>
-                    {slotB && <span className="text-[10px] text-slate-500 font-mono">{slotB.createdAt}</span>}
+                    {slotB && <span className="text-[10px] text-slate-400 font-mono">{slotB.createdAt}</span>}
                   </div>
                   {slotB ? (
                     <div className="space-y-3">
-                      <p className="text-xs text-slate-200 font-medium">{slotB.label}</p>
-                      <div className="text-[11px] text-slate-400 space-y-0.5 bg-slate-900/60 p-2 rounded-lg border border-slate-800/60">
-                        <p>Giọng: <span className="text-slate-300 font-mono">{slotB.params.voiceOrRef}</span></p>
-                        <p>Tốc độ (Speed): <span className="text-slate-300 font-mono">{slotB.params.speed}x</span></p>
-                        {slotB.params.temperature !== undefined && <p>Độ biến thiên (Temp): <span className="text-slate-300 font-mono">{slotB.params.temperature}</span></p>}
-                        {slotB.params.topP !== undefined && <p>Top-P / Top-K: <span className="text-slate-300 font-mono">{slotB.params.topP} / {slotB.params.topK}</span></p>}
-                        {slotB.params.repetitionPenalty !== undefined && <p>Chống vấp (Rep. Pen): <span className="text-slate-300 font-mono">{slotB.params.repetitionPenalty}</span></p>}
-                        {slotB.params.presetName && <p>Gợi ý: <span className="text-slate-300 font-mono">{slotB.params.presetName}</span></p>}
+                      <p className="text-xs text-slate-200 font-semibold">{slotB.label}</p>
+                      <div className="text-[11px] text-slate-300 space-y-0.5 bg-slate-900/80 p-2.5 rounded-lg border border-slate-800">
+                        <p>Giọng: <span className="text-teal-300 font-mono">{slotB.params.voiceOrRef}</span></p>
+                        <p>Tốc độ (Speed): <span className="text-slate-200 font-mono">{slotB.params.speed}x</span></p>
+                        {slotB.params.temperature !== undefined && <p>Độ biến thiên (Temp): <span className="text-slate-200 font-mono">{slotB.params.temperature}</span></p>}
+                        {slotB.params.topP !== undefined && <p>Top-P / Top-K: <span className="text-slate-200 font-mono">{slotB.params.topP} / {slotB.params.topK}</span></p>}
+                        {slotB.params.repetitionPenalty !== undefined && <p>Chống vấp (Rep. Pen): <span className="text-slate-200 font-mono">{slotB.params.repetitionPenalty}</span></p>}
+                        {slotB.params.presetName && <p>Gợi ý: <span className="text-slate-200 font-mono">{slotB.params.presetName}</span></p>}
                       </div>
                       <AudioPlayer artifactId={slotB.artifactId} />
                     </div>
                   ) : (
-                    <p className="text-xs text-slate-500 italic py-4 text-center">Chưa có bản thu nào ở Slot B</p>
+                    <p className="text-xs text-slate-500 italic py-6 text-center">Chưa có bản thu nào ở Slot B</p>
                   )}
                 </div>
               </div>
@@ -855,25 +888,27 @@ export const StudioView: React.FC = () => {
           )}
         </div>
 
-        {/* Right Column: Engine, Voice Mode, Cloning Lab, Advanced Controls, Presets */}
-        <div className="space-y-6">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-6">
-            <div className="flex items-center space-x-2 pb-4 border-b border-slate-800 text-sm font-semibold text-white">
-              <Sliders className="w-4 h-4 text-emerald-400" />
+        {/* =========================================================
+            RIGHT COLUMN: Model Config, Voice Cloning & Advanced Controls (5 Cols)
+            ========================================================= */}
+        <div className="lg:col-span-5 space-y-5">
+          <div className="rounded-2xl border border-slate-800 bg-slate-900/90 shadow-xl p-5 space-y-5">
+            <div className="flex items-center space-x-2 pb-3 border-b border-slate-800/80 text-sm font-bold text-white">
+              <Sliders className="w-4 h-4 text-teal-400" />
               <span>Cấu hình Mô hình &amp; Giọng nói</span>
             </div>
 
             {/* Engine Select */}
-            <div className="space-y-2">
-              <label className="block text-xs font-medium text-slate-300 flex items-center space-x-1.5">
-                <Cpu className="w-3.5 h-3.5 text-slate-400" />
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-slate-300 flex items-center space-x-1.5">
+                <Cpu className="w-3.5 h-3.5 text-teal-400" />
                 <span>AI Engine</span>
               </label>
               <select
                 value={selectedEngineId}
                 onChange={(e) => handleEngineChange(e.target.value)}
                 disabled={loadingEngines || engines.length === 0}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-emerald-500 transition-colors"
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-teal-500 transition-colors font-medium"
               >
                 {engines.map((eng) => (
                   <option key={eng.id} value={eng.id}>
@@ -885,15 +920,15 @@ export const StudioView: React.FC = () => {
 
             {/* Synthesis Mode (Preset Voice vs Voice Cloning) */}
             {supportsCloning && (
-              <div className="space-y-2 pt-1">
-                <label className="block text-xs font-medium text-slate-300">Chế độ giọng đọc</label>
+              <div className="space-y-1.5 pt-1">
+                <label className="text-xs font-semibold text-slate-300">Chế độ giọng đọc:</label>
                 <div className="grid grid-cols-2 gap-2 bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
                   <button
                     type="button"
                     onClick={() => setSynthesisMode('preset')}
-                    className={`py-1.5 px-3 rounded-lg font-medium transition-all flex items-center justify-center space-x-1.5 ${
+                    className={`py-2 px-3 rounded-lg font-medium transition-all flex items-center justify-center space-x-1.5 ${
                       synthesisMode === 'preset'
-                        ? 'bg-emerald-600 text-white shadow-sm'
+                        ? 'bg-teal-600 text-white shadow-sm font-semibold'
                         : 'text-slate-400 hover:text-slate-200'
                     }`}
                   >
@@ -903,9 +938,9 @@ export const StudioView: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setSynthesisMode('clone')}
-                    className={`py-1.5 px-3 rounded-lg font-medium transition-all flex items-center justify-center space-x-1.5 ${
+                    className={`py-2 px-3 rounded-lg font-medium transition-all flex items-center justify-center space-x-1.5 ${
                       synthesisMode === 'clone'
-                        ? 'bg-teal-600 text-white shadow-sm'
+                        ? 'bg-teal-600 text-white shadow-sm font-semibold'
                         : 'text-slate-400 hover:text-slate-200'
                     }`}
                   >
@@ -917,15 +952,15 @@ export const StudioView: React.FC = () => {
             )}
 
             {/* Language Select */}
-            <div className="space-y-2">
-              <label className="block text-xs font-medium text-slate-300 flex items-center space-x-1.5">
-                <Languages className="w-3.5 h-3.5 text-slate-400" />
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-slate-300 flex items-center space-x-1.5">
+                <Languages className="w-3.5 h-3.5 text-teal-400" />
                 <span>Ngôn ngữ (Language)</span>
               </label>
               <select
                 value={selectedLang}
                 onChange={(e) => setSelectedLang(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-emerald-500 transition-colors"
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-teal-500 transition-colors font-medium"
               >
                 {activeEngine?.supported_languages.map((l) => (
                   <option key={l} value={l}>
@@ -937,16 +972,16 @@ export const StudioView: React.FC = () => {
 
             {/* Mode 1: Preset Voice Select */}
             {synthesisMode === 'preset' ? (
-              <div className="space-y-2">
-                <label className="block text-xs font-medium text-slate-300 flex items-center space-x-1.5">
-                  <UserCheck className="w-3.5 h-3.5 text-slate-400" />
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-300 flex items-center space-x-1.5">
+                  <UserCheck className="w-3.5 h-3.5 text-teal-400" />
                   <span>Giọng đọc ({filteredVoices.length} giọng tích hợp)</span>
                 </label>
                 <select
                   value={selectedVoiceId}
                   onChange={(e) => setSelectedVoiceId(e.target.value)}
                   disabled={filteredVoices.length === 0}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-emerald-500 transition-colors"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-slate-200 focus:outline-none focus:border-teal-500 transition-colors font-medium"
                 >
                   {filteredVoices.map((v) => (
                     <option key={v.id} value={v.id}>
@@ -957,13 +992,20 @@ export const StudioView: React.FC = () => {
               </div>
             ) : (
               /* Mode 2: Voice Cloning Reference Studio */
-              <div className="space-y-3 p-4 bg-slate-950/80 border border-teal-500/30 rounded-xl">
-                <div className="flex items-center space-x-1.5 text-xs font-semibold text-teal-400">
-                  <FileAudio className="w-4 h-4" />
-                  <span>Voice Cloning Studio — Mẫu âm thanh tham chiếu</span>
+              <div className="space-y-3.5 p-4 bg-slate-950/80 border border-teal-500/40 rounded-xl ring-1 ring-teal-500/20">
+                <div className="flex items-center justify-between text-xs font-semibold text-teal-300">
+                  <div className="flex items-center space-x-1.5">
+                    <FileAudio className="w-4 h-4 text-teal-400" />
+                    <span>Voice Cloning Studio — Mẫu âm thanh tham chiếu</span>
+                  </div>
+                  <span className={`text-[10px] px-2 py-0.5 rounded font-mono ${
+                    refAudioFile || uploadedAssetId ? 'bg-teal-500/20 text-teal-300' : 'bg-amber-500/20 text-amber-300'
+                  }`}>
+                    {refAudioFile || uploadedAssetId ? 'Đã có mẫu' : 'Chờ mẫu'}
+                  </span>
                 </div>
                 
-                <p className="text-[11px] text-slate-400">
+                <p className="text-xs text-slate-300 leading-relaxed">
                   Tải lên tệp WAV giọng nói mẫu (0.5s - 30s) để AI trích xuất vector âm sắc nhân bản giọng đọc.
                 </p>
 
@@ -971,15 +1013,15 @@ export const StudioView: React.FC = () => {
                   type="file"
                   accept=".wav"
                   onChange={(e) => handleFileSelect(e.target.files?.[0] || null)}
-                  className="block w-full text-xs text-slate-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-medium file:bg-teal-600/20 file:text-teal-300 hover:file:bg-teal-600/30 cursor-pointer"
+                  className="block w-full text-xs text-slate-300 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-teal-600/30 file:text-teal-200 hover:file:bg-teal-600/40 cursor-pointer"
                 />
 
                 {/* Preview Selected Audio */}
                 {refAudioFile && previewAudioUrl && (
-                  <div className="p-2.5 rounded-lg bg-teal-950/30 border border-teal-500/20 space-y-2">
-                    <div className="flex items-center justify-between text-[11px] text-teal-300">
-                      <span className="font-mono truncate max-w-[200px]">{refAudioFile.name}</span>
-                      <span className="text-[10px] text-slate-400">{(refAudioFile.size / 1024).toFixed(1)} KB</span>
+                  <div className="p-3 rounded-lg bg-teal-950/30 border border-teal-500/30 space-y-2">
+                    <div className="flex items-center justify-between text-xs text-teal-300">
+                      <span className="font-mono truncate max-w-[220px] font-medium">{refAudioFile.name}</span>
+                      <span className="text-[11px] text-slate-400">{(refAudioFile.size / 1024).toFixed(1)} KB</span>
                     </div>
                     <audio controls src={previewAudioUrl} className="w-full h-8" />
                   </div>
@@ -987,17 +1029,17 @@ export const StudioView: React.FC = () => {
 
                 {/* Voice Profiles (Reusable Voice Library) */}
                 {voiceProfiles.length > 0 && (
-                  <div className="space-y-1.5 pt-1 border-t border-slate-800/80">
-                    <label className="text-[11px] text-teal-300 font-semibold flex items-center space-x-1.5">
+                  <div className="space-y-1.5 pt-2 border-t border-slate-800/80">
+                    <label className="text-xs text-teal-300 font-semibold flex items-center space-x-1.5">
                       <BookmarkPlus className="w-3.5 h-3.5 text-teal-400" />
                       <span>Hồ sơ giọng đã lưu (Voice Profiles Library):</span>
                     </label>
-                    <div className="space-y-1 max-h-36 overflow-y-auto pr-1">
+                    <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
                       {voiceProfiles.map((p) => (
                         <div
                           key={p.id}
                           onClick={() => handleSelectProfile(p)}
-                          className={`p-2 rounded-lg text-xs flex items-center justify-between cursor-pointer transition-colors ${
+                          className={`p-2.5 rounded-lg text-xs flex items-center justify-between cursor-pointer transition-colors ${
                             uploadedAssetId === p.reference_asset_id
                               ? 'bg-teal-900/50 border border-teal-400/60 text-teal-100 ring-1 ring-teal-400/30'
                               : 'bg-slate-900 border border-slate-800 text-slate-300 hover:bg-slate-800/80'
@@ -1005,11 +1047,11 @@ export const StudioView: React.FC = () => {
                         >
                           <div className="truncate mr-2">
                             <p className="font-semibold truncate text-teal-300">{p.name}</p>
-                            <p className="text-[10px] text-slate-400">
+                            <p className="text-[11px] text-slate-400">
                               Tốc độ: {p.parameters?.speed ?? 1.0}x · Temp: {p.parameters?.temperature ?? 0.8}
                             </p>
                           </div>
-                          <div className="flex items-center space-x-1">
+                          <div className="flex items-center space-x-1.5">
                             <button
                               type="button"
                               onClick={(e) => {
@@ -1041,9 +1083,9 @@ export const StudioView: React.FC = () => {
 
                 {/* Existing Assets Library */}
                 {existingAssets.length > 0 && (
-                  <div className="space-y-1.5 pt-1 border-t border-slate-800/80">
-                    <label className="text-[11px] text-slate-400 font-medium">Hoặc chọn mẫu từ thư viện tệp đã tải lên:</label>
-                    <div className="space-y-1 max-h-36 overflow-y-auto pr-1">
+                  <div className="space-y-1.5 pt-2 border-t border-slate-800/80">
+                    <label className="text-xs text-slate-300 font-semibold">Hoặc chọn mẫu từ thư viện tệp đã tải lên:</label>
+                    <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
                       {existingAssets.map((a) => (
                         <div
                           key={a.id}
@@ -1051,17 +1093,17 @@ export const StudioView: React.FC = () => {
                             setUploadedAssetId(a.id);
                             handleFileSelect(null);
                           }}
-                          className={`p-2 rounded-lg text-xs flex items-center justify-between cursor-pointer transition-colors ${
+                          className={`p-2.5 rounded-lg text-xs flex items-center justify-between cursor-pointer transition-colors ${
                             uploadedAssetId === a.id
                               ? 'bg-teal-900/40 border border-teal-500/40 text-teal-200'
                               : 'bg-slate-900 border border-slate-800 text-slate-300 hover:bg-slate-800/80'
                           }`}
                         >
                           <div className="truncate mr-2">
-                            <p className="font-medium truncate">{a.filename}</p>
-                            <p className="text-[10px] text-slate-500">{a.duration_seconds}s · {a.sample_rate}Hz</p>
+                            <p className="font-medium truncate text-slate-200">{a.filename}</p>
+                            <p className="text-[10px] text-slate-400">{a.duration_seconds}s · {a.sample_rate}Hz</p>
                           </div>
-                          <div className="flex items-center space-x-1">
+                          <div className="flex items-center space-x-1.5">
                             <button
                               type="button"
                               onClick={(e) => {
@@ -1098,26 +1140,26 @@ export const StudioView: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => setShowProfileModal(true)}
-                        className="w-full py-1.5 px-3 rounded-lg bg-teal-950/40 hover:bg-teal-900/40 text-teal-300 border border-teal-500/30 text-xs font-medium flex items-center justify-center space-x-1.5 transition-colors"
+                        className="w-full py-2 px-3 rounded-lg bg-teal-950/40 hover:bg-teal-900/40 text-teal-300 border border-teal-500/30 text-xs font-semibold flex items-center justify-center space-x-1.5 transition-colors"
                       >
                         <BookmarkPlus className="w-3.5 h-3.5" />
                         <span>Lưu mẫu &amp; tham số hiện tại thành Hồ sơ Giọng</span>
                       </button>
                     ) : (
-                      <div className="p-2.5 bg-slate-900 rounded-lg border border-teal-500/40 space-y-2">
-                        <label className="text-[11px] font-medium text-teal-300">Tên hồ sơ giọng mới:</label>
+                      <div className="p-3 bg-slate-900 rounded-xl border border-teal-500/40 space-y-2">
+                        <label className="text-xs font-semibold text-teal-300">Tên hồ sơ giọng mới:</label>
                         <input
                           type="text"
                           value={newProfileName}
                           onChange={(e) => setNewProfileName(e.target.value)}
                           placeholder="Ví dụ: Giọng Chị Mai - Đọc Truyện"
-                          className="w-full bg-slate-950 border border-slate-800 rounded px-2.5 py-1 text-xs text-white focus:outline-none focus:border-teal-500"
+                          className="w-full bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-teal-500"
                         />
                         <div className="flex justify-end space-x-2 pt-1">
                           <button
                             type="button"
                             onClick={() => setShowProfileModal(false)}
-                            className="px-2.5 py-1 text-[11px] rounded bg-slate-800 text-slate-400 hover:text-slate-200"
+                            className="px-2.5 py-1 text-xs rounded bg-slate-800 text-slate-400 hover:text-slate-200"
                           >
                             Hủy
                           </button>
@@ -1125,7 +1167,7 @@ export const StudioView: React.FC = () => {
                             type="button"
                             onClick={handleSaveProfile}
                             disabled={!newProfileName.trim()}
-                            className="px-3 py-1 text-[11px] rounded bg-teal-600 hover:bg-teal-500 text-white disabled:opacity-50"
+                            className="px-3 py-1 text-xs rounded bg-teal-600 hover:bg-teal-500 text-white font-semibold disabled:opacity-50"
                           >
                             Lưu hồ sơ
                           </button>
@@ -1136,20 +1178,20 @@ export const StudioView: React.FC = () => {
                 )}
 
                 {/* Legal Voice-Use Consent Checkbox */}
-                <label className="flex items-start space-x-2 text-[11px] text-slate-300 cursor-pointer pt-1 bg-amber-500/10 p-2.5 rounded-lg border border-amber-500/20">
+                <label className="flex items-start space-x-2.5 text-xs text-slate-300 cursor-pointer pt-1 bg-amber-500/10 p-3 rounded-xl border border-amber-500/20">
                   <input
                     type="checkbox"
                     checked={voiceConsent}
                     onChange={(e) => setVoiceConsent(e.target.checked)}
                     className="mt-0.5 rounded bg-slate-900 border-slate-700 text-teal-600 focus:ring-0"
                   />
-                  <span className="text-amber-300 font-medium leading-relaxed">
+                  <span className="text-amber-200 font-medium leading-relaxed">
                     Tôi xác nhận đã có sự đồng ý hợp pháp của chủ giọng nói để sử dụng cho mục đích nhân bản giọng đọc (Voice-Use Consent)
                   </span>
                 </label>
 
                 {/* Denoise Toggle */}
-                <label className="flex items-center space-x-2 text-[11px] text-slate-300 cursor-pointer pt-0.5">
+                <label className="flex items-center space-x-2 text-xs text-slate-300 cursor-pointer pt-1">
                   <input
                     type="checkbox"
                     checked={denoiseRef}
@@ -1163,13 +1205,13 @@ export const StudioView: React.FC = () => {
 
             {/* Presets Selector */}
             {capabilityDetail?.presets && capabilityDetail.presets.length > 0 && (
-              <div className="space-y-2 pt-2 border-t border-slate-800">
+              <div className="space-y-2 pt-2 border-t border-slate-800/80">
                 <div className="flex items-center justify-between">
                   <div>
                     <label className="text-xs font-semibold text-slate-300">Cấu hình tham số gợi ý (Recommended Presets)</label>
-                    <p className="text-[10px] text-slate-500">Gợi ý tầng ứng dụng (Application Suggestions)</p>
+                    <p className="text-[11px] text-slate-400">Gợi ý tầng ứng dụng (Application Suggestions)</p>
                   </div>
-                  <span className="text-[10px] text-emerald-400 font-medium bg-emerald-950/40 border border-emerald-500/30 px-1.5 py-0.5 rounded">Gợi ý</span>
+                  <span className="text-[10px] text-teal-400 font-medium bg-teal-950/40 border border-teal-500/30 px-2 py-0.5 rounded">Gợi ý</span>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   {capabilityDetail.presets.map((pr) => (
@@ -1177,14 +1219,14 @@ export const StudioView: React.FC = () => {
                       key={pr.id}
                       type="button"
                       onClick={() => applyPreset(pr.id, pr.values)}
-                      className={`p-2 rounded-xl text-left border transition-all ${
+                      className={`p-2.5 rounded-xl text-left border transition-all ${
                         activePresetId === pr.id
-                          ? 'bg-emerald-950/40 border-emerald-500/50 text-emerald-200'
+                          ? 'bg-teal-950/50 border-teal-500/60 text-teal-200'
                           : 'bg-slate-950 border-slate-800/80 text-slate-400 hover:border-slate-700 hover:text-slate-300'
                       }`}
                     >
-                      <p className="text-xs font-medium">{pr.label}</p>
-                      <p className="text-[10px] text-slate-500 truncate mt-0.5">{pr.description}</p>
+                      <p className="text-xs font-semibold">{pr.label}</p>
+                      <p className="text-[10px] text-slate-400 truncate mt-0.5">{pr.description}</p>
                     </button>
                   ))}
                 </div>
@@ -1192,13 +1234,13 @@ export const StudioView: React.FC = () => {
             )}
 
             {/* Speed Slider (Always Available) */}
-            <div className="space-y-2 pt-2 border-t border-slate-800">
+            <div className="space-y-2 pt-2 border-t border-slate-800/80">
               <div className="flex items-center justify-between text-xs">
                 <div>
-                  <span className="font-medium text-slate-300">Tốc độ phát âm (Speed)</span>
-                  <p className="text-[10px] text-slate-500">DSP phase vocoder (bảo toàn cao độ xấp xỉ)</p>
+                  <span className="font-semibold text-slate-300">Tốc độ phát âm (Speed)</span>
+                  <p className="text-[11px] text-slate-400">DSP phase vocoder (bảo toàn cao độ xấp xỉ)</p>
                 </div>
-                <span className="font-mono text-emerald-400 font-semibold">{speed.toFixed(2)}x</span>
+                <span className="font-mono text-teal-400 font-bold">{speed.toFixed(2)}x</span>
               </div>
               <input
                 type="range"
@@ -1210,9 +1252,9 @@ export const StudioView: React.FC = () => {
                   setSpeed(parseFloat(e.target.value));
                   setActivePresetId('custom');
                 }}
-                className="w-full h-1.5 bg-slate-950 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                className="w-full h-1.5 bg-slate-950 rounded-lg appearance-none cursor-pointer accent-teal-500"
               />
-              <div className="flex justify-between text-[10px] text-slate-500">
+              <div className="flex justify-between text-[11px] text-slate-400 font-mono">
                 <span>0.5x (Chậm)</span>
                 <span>1.0x (Chuẩn)</span>
                 <span>2.0x (Nhanh)</span>
@@ -1221,31 +1263,31 @@ export const StudioView: React.FC = () => {
 
             {/* Advanced Voice Controls Accordion (Native Model Parameters) */}
             {supportsAdvancedControls && (
-              <div className="pt-2 border-t border-slate-800">
+              <div className="pt-2 border-t border-slate-800/80">
                 <button
                   type="button"
                   onClick={() => setShowAdvancedControls(!showAdvancedControls)}
-                  className="w-full flex items-center justify-between text-xs font-semibold text-slate-300 hover:text-emerald-400 transition-colors py-1"
+                  className="w-full flex items-center justify-between text-xs font-semibold text-slate-300 hover:text-teal-400 transition-colors py-1"
                 >
                   <span className="flex items-center space-x-1.5">
-                    <Sliders className="w-3.5 h-3.5 text-emerald-400" />
+                    <Sliders className="w-3.5 h-3.5 text-teal-400" />
                     <span>Tinh chỉnh giọng nâng cao (Advanced Controls)</span>
                   </span>
                   {showAdvancedControls ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                 </button>
 
                 {showAdvancedControls && (
-                  <div className="mt-3 space-y-4 p-3.5 bg-slate-950/70 border border-slate-800 rounded-xl text-xs">
+                  <div className="mt-3 space-y-4 p-4 bg-slate-950/80 border border-slate-800 rounded-xl text-xs">
                     {/* Temperature Slider */}
-                    <div className="space-y-1">
+                    <div className="space-y-1.5">
                       <div className="flex items-center justify-between">
                         <span className="text-slate-300 flex items-center space-x-1">
-                          <span>Độ biến thiên lấy mẫu (Sampling Randomness)</span>
+                          <span className="font-semibold">Độ biến thiên lấy mẫu (Sampling Randomness)</span>
                           <span title="Kiểm soát độ ngẫu nhiên phân phối xác suất token âm thanh; không cam kết biểu đạt cảm xúc cụ thể." className="text-slate-500 cursor-help">
-                            <Info className="w-3 h-3 inline" />
+                            <Info className="w-3.5 h-3.5 inline" />
                           </span>
                         </span>
-                        <span className="font-mono text-emerald-400">{temperature.toFixed(2)}</span>
+                        <span className="font-mono text-teal-400 font-bold">{temperature.toFixed(2)}</span>
                       </div>
                       <input
                         type="range"
@@ -1257,9 +1299,9 @@ export const StudioView: React.FC = () => {
                           setTemperature(parseFloat(e.target.value));
                           setActivePresetId('custom');
                         }}
-                        className="w-full h-1.5 bg-slate-900 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                        className="w-full h-1.5 bg-slate-900 rounded-lg appearance-none cursor-pointer accent-teal-500"
                       />
-                      <div className="flex justify-between text-[10px] text-slate-500">
+                      <div className="flex justify-between text-[11px] text-slate-400 font-mono">
                         <span>0.1 (Ổn định)</span>
                         <span>0.8 (Chuẩn)</span>
                         <span>1.5 (Đa dạng ngẫu nhiên)</span>
@@ -1267,15 +1309,15 @@ export const StudioView: React.FC = () => {
                     </div>
 
                     {/* Top-P Slider */}
-                    <div className="space-y-1">
+                    <div className="space-y-1.5">
                       <div className="flex items-center justify-between">
                         <span className="text-slate-300 flex items-center space-x-1">
-                          <span>Ngưỡng Top-P (Nucleus Sampling)</span>
+                          <span className="font-semibold">Ngưỡng Top-P (Nucleus Sampling)</span>
                           <span title="Chỉ chọn lọc từ nhóm token có tổng xác suất tích lũy đạt ngưỡng P." className="text-slate-500 cursor-help">
-                            <Info className="w-3 h-3 inline" />
+                            <Info className="w-3.5 h-3.5 inline" />
                           </span>
                         </span>
-                        <span className="font-mono text-emerald-400">{topP.toFixed(2)}</span>
+                        <span className="font-mono text-teal-400 font-bold">{topP.toFixed(2)}</span>
                       </div>
                       <input
                         type="range"
@@ -1287,20 +1329,20 @@ export const StudioView: React.FC = () => {
                           setTopP(parseFloat(e.target.value));
                           setActivePresetId('custom');
                         }}
-                        className="w-full h-1.5 bg-slate-900 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                        className="w-full h-1.5 bg-slate-900 rounded-lg appearance-none cursor-pointer accent-teal-500"
                       />
                     </div>
 
                     {/* Top-K Slider */}
-                    <div className="space-y-1">
+                    <div className="space-y-1.5">
                       <div className="flex items-center justify-between">
                         <span className="text-slate-300 flex items-center space-x-1">
-                          <span>Giới hạn Top-K</span>
+                          <span className="font-semibold">Giới hạn Top-K</span>
                           <span title="Số lượng âm vị ứng viên có xác suất cao nhất tại mỗi bước sinh âm." className="text-slate-500 cursor-help">
-                            <Info className="w-3 h-3 inline" />
+                            <Info className="w-3.5 h-3.5 inline" />
                           </span>
                         </span>
-                        <span className="font-mono text-emerald-400">{topK}</span>
+                        <span className="font-mono text-teal-400 font-bold">{topK}</span>
                       </div>
                       <input
                         type="range"
@@ -1312,20 +1354,20 @@ export const StudioView: React.FC = () => {
                           setTopK(parseInt(e.target.value, 10));
                           setActivePresetId('custom');
                         }}
-                        className="w-full h-1.5 bg-slate-900 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                        className="w-full h-1.5 bg-slate-900 rounded-lg appearance-none cursor-pointer accent-teal-500"
                       />
                     </div>
 
                     {/* Repetition Penalty Slider */}
-                    <div className="space-y-1">
+                    <div className="space-y-1.5">
                       <div className="flex items-center justify-between">
                         <span className="text-slate-300 flex items-center space-x-1">
-                          <span>Chống vấp / Lặp âm (Repetition Penalty)</span>
+                          <span className="font-semibold">Chống vấp / Lặp âm (Repetition Penalty)</span>
                           <span title="Hình phạt lặp lại âm tiết, giúp câu nói trôi chảy và hạn chế nói vấp." className="text-slate-500 cursor-help">
-                            <Info className="w-3 h-3 inline" />
+                            <Info className="w-3.5 h-3.5 inline" />
                           </span>
                         </span>
-                        <span className="font-mono text-emerald-400">{repetitionPenalty.toFixed(2)}</span>
+                        <span className="font-mono text-teal-400 font-bold">{repetitionPenalty.toFixed(2)}</span>
                       </div>
                       <input
                         type="range"
@@ -1337,7 +1379,7 @@ export const StudioView: React.FC = () => {
                           setRepetitionPenalty(parseFloat(e.target.value));
                           setActivePresetId('custom');
                         }}
-                        className="w-full h-1.5 bg-slate-900 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                        className="w-full h-1.5 bg-slate-900 rounded-lg appearance-none cursor-pointer accent-teal-500"
                       />
                     </div>
 
@@ -1345,9 +1387,9 @@ export const StudioView: React.FC = () => {
                     <button
                       type="button"
                       onClick={resetToDefaults}
-                      className="w-full py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 border border-slate-800 text-[11px] font-medium flex items-center justify-center space-x-1.5 transition-colors"
+                      className="w-full py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white border border-slate-800 text-xs font-semibold flex items-center justify-center space-x-1.5 transition-colors"
                     >
-                      <RotateCcw className="w-3 h-3" />
+                      <RotateCcw className="w-3.5 h-3.5" />
                       <span>Khôi phục giá trị mặc định</span>
                     </button>
                   </div>
