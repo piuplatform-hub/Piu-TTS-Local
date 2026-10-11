@@ -6,6 +6,7 @@ import io
 import math
 from pathlib import Path
 import struct
+import uuid
 import wave
 import pytest
 from httpx import AsyncClient
@@ -381,3 +382,198 @@ async def test_segment_override_takes_precedence_over_character_default(client: 
         assert j2.payload_data.get("voice_id") == "mai_anh"
         p2 = j2.payload_data["parameters"]
         assert p2.get("temperature") == 0.5
+
+
+@pytest.mark.asyncio
+async def test_voice_profile_deletion_authorization_and_reference_audio_safety(
+    client: AsyncClient, test_env, registered_engines_manifests
+):
+    """
+    Rigorously verifies Voice Profile deletion:
+    1. Unauthenticated request -> 401 Unauthorized
+    2. Viewer role request -> 403 Forbidden
+    3. Non-existent profile -> 404 Not Found
+    4. Non-owner editor request -> 403 Forbidden (cross-user isolation)
+    5. Owner deletion:
+       - Deletes Voice Profile record from SQLite
+       - Deletes Voice Profile metadata JSON file on disk
+       - DOES NOT delete the shared ReferenceAssetRecord in DB
+       - DOES NOT delete the physical reference WAV file on disk
+       - Leaves other profiles and characters referencing that asset 100% functional
+       - Owner can still stream reference audio file via GET /file
+       - Owner can still synthesize speech with surviving voice profile
+    """
+    headers_a, headers_b = await setup_two_users(client)
+
+    # 1. Provision User C (viewer role) and User D (editor role) via Admin User A
+    reg_c = await client.post(
+        "/api/v1/auth/users",
+        headers=headers_a,
+        json={"username": "user_charlie_viewer", "password": "Password12345!", "role": "viewer"},
+    )
+    assert reg_c.status_code == 201
+    log_c = await client.post(
+        "/api/v1/auth/login",
+        json={"username": "user_charlie_viewer", "password": "Password12345!"},
+    )
+    headers_c = {"Authorization": f"Bearer {log_c.json()['access_token']}"}
+
+    reg_d = await client.post(
+        "/api/v1/auth/users",
+        headers=headers_a,
+        json={"username": "user_delta_editor", "password": "Password12345!", "role": "editor"},
+    )
+    assert reg_d.status_code == 201
+    log_d = await client.post(
+        "/api/v1/auth/login",
+        json={"username": "user_delta_editor", "password": "Password12345!"},
+    )
+    headers_d = {"Authorization": f"Bearer {log_d.json()['access_token']}"}
+
+    # 2. Check 401 for unauthenticated deletion
+    del_unauth = await client.delete("/api/v1/voices/profiles/some-profile-uuid")
+    assert del_unauth.status_code == 401
+    assert del_unauth.json()["code"] == "UNAUTHORIZED"
+
+    # 3. Check 403 for viewer role deletion
+    del_viewer = await client.delete("/api/v1/voices/profiles/some-profile-uuid", headers=headers_c)
+    assert del_viewer.status_code == 403
+    assert del_viewer.json()["code"] == "FORBIDDEN_INSUFFICIENT_ROLE"
+
+    # 4. Check 404 for non-existent profile
+    random_uuid = str(uuid.uuid4())
+    del_notfound = await client.delete(f"/api/v1/voices/profiles/{random_uuid}", headers=headers_b)
+    assert del_notfound.status_code == 404
+    assert del_notfound.json()["code"] == "VOICE_PROFILE_NOT_FOUND"
+
+    # 5. User B (editor) uploads a reference audio asset
+    wav_bytes = create_sample_wav(duration=2.5, sample_rate=24000)
+    up_res = await client.post(
+        "/api/v1/assets/reference-audio",
+        headers=headers_b,
+        data={"voice_use_consent": "true"},
+        files={"file": ("shared_voice_sample.wav", wav_bytes, "audio/wav")},
+    )
+    assert up_res.status_code == 201
+    shared_ref_id = up_res.json()["asset_id"]
+
+    # 6. User B creates Profile 1 (to be deleted)
+    p1_res = await client.post(
+        "/api/v1/voices/profiles",
+        headers=headers_b,
+        json={
+            "name": "Hồ Sơ Giọng B1 (Sẽ Xóa)",
+            "reference_asset_id": shared_ref_id,
+            "engine_id": "vieneu-tts",
+            "parameters": {"speed": 1.0, "temperature": 0.8},
+        },
+    )
+    assert p1_res.status_code == 201
+    p1_data = p1_res.json()
+    p1_id = p1_data["id"]
+    user_b_id = p1_data["user_id"]
+    p1_disk_file = settings.get_data_dir() / "voices" / user_b_id / f"{p1_id}.json"
+    assert p1_disk_file.exists(), f"Profile 1 file must exist at {p1_disk_file}"
+
+    # 7. User B creates Profile 2 (must survive and stay fully usable)
+    p2_res = await client.post(
+        "/api/v1/voices/profiles",
+        headers=headers_b,
+        json={
+            "name": "Hồ Sơ Giọng B2 (Giữ Lại)",
+            "reference_asset_id": shared_ref_id,
+            "engine_id": "vieneu-tts",
+            "parameters": {"speed": 1.15, "temperature": 0.95},
+        },
+    )
+    assert p2_res.status_code == 201
+    p2_id = p2_res.json()["id"]
+    p2_disk_file = settings.get_data_dir() / "voices" / user_b_id / f"{p2_id}.json"
+    assert p2_disk_file.exists()
+
+    # 8. User B creates Dialogue Project and Character C (must survive and retain ref audio)
+    proj_res = await client.post(
+        "/api/v1/projects",
+        headers=headers_b,
+        json={"title": "Dự Án Chia Sẻ Ref Audio", "project_type": "dialogue"},
+    )
+    assert proj_res.status_code == 201
+    proj_id = proj_res.json()["id"]
+
+    char_res = await client.post(
+        f"/api/v1/projects/{proj_id}/characters",
+        headers=headers_b,
+        json={
+            "name": "Nhân Vật Chia Sẻ Ref",
+            "avatar_color": "#14b8a6",
+            "engine_id": "vieneu-tts",
+            "voice_id": "hai_dang",
+            "language": "vi",
+            "parameters": {"reference_asset_id": shared_ref_id, "speed": 1.05},
+        },
+    )
+    assert char_res.status_code == 201
+    char_id = char_res.json()["id"]
+
+    # 9. Cross-user isolation: User D (another editor) attempts to delete User B's Profile 1 -> 403 Forbidden
+    del_cross = await client.delete(f"/api/v1/voices/profiles/{p1_id}", headers=headers_d)
+    assert del_cross.status_code == 403
+    assert del_cross.json()["code"] == "FORBIDDEN_PROFILE_ACCESS"
+    assert p1_disk_file.exists(), "Profile 1 JSON file must NOT be deleted after failed cross-user delete"
+
+    # 10. Legitimate Owner User B deletes Profile 1 -> 200 OK
+    del_ok = await client.delete(f"/api/v1/voices/profiles/{p1_id}", headers=headers_b)
+    assert del_ok.status_code == 200
+    assert not p1_disk_file.exists(), "Profile 1 JSON file MUST be deleted on owner deletion"
+
+    # 11. Database integrity checks:
+    async with database.AsyncSessionLocal() as session:
+        from apps.server.src.models.asset import ReferenceAssetRecord
+        from apps.server.src.models.character import CharacterRecord
+
+        # A. Profile 1 is removed from database
+        prof1_db = await session.get(VoiceProfileRecord, p1_id)
+        assert prof1_db is None, "Voice Profile 1 record must be deleted from DB"
+
+        # B. ReferenceAssetRecord IS NOT DELETED from database
+        ref_db = await session.get(ReferenceAssetRecord, shared_ref_id)
+        assert ref_db is not None, "ReferenceAssetRecord MUST NOT be deleted when a profile is deleted"
+        ref_path = Path(ref_db.file_path)
+        assert ref_path.exists(), f"Physical reference WAV audio file at {ref_path} MUST NOT be deleted"
+
+        # C. Surviving Profile 2 is intact and still references shared_ref_id
+        prof2_db = await session.get(VoiceProfileRecord, p2_id)
+        assert prof2_db is not None, "Voice Profile 2 must still exist in DB"
+        assert prof2_db.reference_asset_id == shared_ref_id
+        assert p2_disk_file.exists(), "Profile 2 JSON file must still exist on disk"
+
+        # D. Surviving Character C is intact and still references shared_ref_id
+        char_db = await session.get(CharacterRecord, char_id)
+        assert char_db is not None, "Character C must still exist in DB"
+        assert char_db.parameters.get("reference_asset_id") == shared_ref_id
+
+    # 12. Audio streaming for the shared reference audio continues to succeed
+    stream_res = await client.get(f"/api/v1/assets/reference-audio/{shared_ref_id}/file", headers=headers_b)
+    assert stream_res.status_code == 200
+    assert stream_res.headers.get("Content-Type") == "audio/wav"
+    assert len(stream_res.content) == len(wav_bytes)
+
+    # 13. Speech synthesis job referencing surviving Profile 2 succeeds without error
+    job_res = await client.post(
+        "/api/v1/jobs/speech",
+        headers=headers_b,
+        json={
+            "text": "Kiểm tra hồ sơ giọng thứ hai vẫn hoạt động tốt.",
+            "engine_id": "vieneu-tts",
+            "voice_id": f"profile:{p2_id}",
+            "language": "vi",
+        },
+    )
+    assert job_res.status_code == 201
+    job_id = job_res.json()["id"]
+
+    # Verify job payload resolved the surviving reference asset correctly
+    async with database.AsyncSessionLocal() as session:
+        job_db = (await session.execute(select(JobRecord).where(JobRecord.id == job_id))).scalar_one()
+        assert job_db.payload_data["parameters"]["reference_asset_id"] == shared_ref_id
+

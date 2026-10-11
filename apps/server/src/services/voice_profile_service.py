@@ -165,7 +165,7 @@ class VoiceProfileService:
         await db.commit()
         await db.refresh(profile)
 
-        cls._save_profile_file(user.id, profile)
+        cls._save_profile_file(profile.user_id, profile)
         return profile
 
     @classmethod
@@ -178,7 +178,7 @@ class VoiceProfileService:
         profile = await cls.get_profile(db, profile_id, user)
 
         # Remove local metadata file
-        user_dir = cls._get_user_voice_dir(user.id)
+        user_dir = cls._get_user_voice_dir(profile.user_id)
         file_path = user_dir / f"{profile.id}.json"
         if file_path.exists():
             try:
