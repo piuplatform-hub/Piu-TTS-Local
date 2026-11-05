@@ -21,6 +21,7 @@ wheels/
 .installed.cfg
 *.egg
 .venv/
+.venv-run/
 venv/
 ENV/
 

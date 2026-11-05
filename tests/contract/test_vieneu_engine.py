@@ -28,7 +28,8 @@ def test_vieneu_manifest_validation():
     assert manifest.has_capability(CapabilityEnum.SPEAKER_SELECTION)
     assert "vi" in manifest.supported_languages
     assert manifest.default_sample_rate == 48000
-    assert manifest.hardware_profile.default_device == "cpu"
+    assert manifest.hardware_profile.default_device == "auto"
+    assert set(manifest.hardware_profile.supported_devices) == {"cpu", "gpu"}
 
 
 @pytest.mark.asyncio
@@ -69,7 +70,7 @@ async def test_vieneu_worker_lifecycle_and_contract():
         health = await client.get_health()
         assert health.status == "healthy"
         assert health.engine_id == "vieneu-tts"
-        assert health.device == "cpu"
+        assert health.device in {"cpu", "gpu"}
 
         # 3. Test get_info
         info = await client.get_info()

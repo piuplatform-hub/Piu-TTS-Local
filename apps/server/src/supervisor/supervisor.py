@@ -5,15 +5,35 @@ Features Windows Job Object integration for bulletproof child process-tree termi
 """
 
 import asyncio
+from collections import deque
+import logging
 import os
 import secrets
 import subprocess
 import sys
+import threading
 from pathlib import Path
 from typing import Dict, Optional, Any
 
 from engine_sdk.client import EngineWorkerClient
 from engine_sdk.manifest import EngineManifest
+from ..config import settings
+
+logger = logging.getLogger(__name__)
+
+
+def _drain_worker_stream(stream, engine_id: str, channel: str, tail) -> None:
+    """Drain child-process pipes so verbose model loaders cannot block workers."""
+    try:
+        for raw_line in iter(stream.readline, ""):
+            line = raw_line.rstrip()
+            if not line:
+                continue
+            tail.append(f"[{engine_id} {channel}] {line}")
+            logger.debug("%s", tail[-1])
+    except Exception:
+        # A terminating worker closes its pipes; this is not a supervisor error.
+        pass
 
 
 def _setup_windows_job_object(process: subprocess.Popen) -> Optional[Any]:
@@ -144,7 +164,36 @@ class ProcessSupervisor:
             if venv_python.exists():
                 python_bin = str(venv_python)
 
+        # On Windows, a spawned Uvicorn child can report the base Python even
+        # when the server was launched from a virtualenv. Prefer a usable local
+        # project venv before falling back to that interpreter; otherwise the
+        # worker may miss engine packages installed in the project environment.
+        if python_bin == sys.executable:
+            for local_venv in (workspace_root / ".venv-run", workspace_root / ".venv"):
+                candidate = local_venv / "Scripts" / "python.exe"
+                if not candidate.exists():
+                    continue
+                try:
+                    probe = subprocess.run(
+                        [str(candidate), "-c", "import sys"],
+                        cwd=str(workspace_root),
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        timeout=5,
+                        check=False,
+                    )
+                except (OSError, subprocess.SubprocessError):
+                    continue
+                if probe.returncode == 0:
+                    python_bin = str(candidate)
+                    break
+
         auth_token = secrets.token_hex(24)
+
+        child_env = None
+        if engine_id == "vieneu-tts":
+            child_env = os.environ.copy()
+            child_env["VIENEU_DEVICE"] = settings.VIENEU_DEVICE
 
         # Launch worker child process on loopback ephemeral port
         proc = subprocess.Popen(
@@ -154,7 +203,17 @@ class ProcessSupervisor:
             text=True,
             bufsize=1,
             cwd=str(workspace_root),
+            env=child_env,
         )
+
+        stderr_tail = deque(maxlen=200)
+        if proc.stderr:
+            threading.Thread(
+                target=_drain_worker_stream,
+                args=(proc.stderr, engine_id, "stderr", stderr_tail),
+                daemon=True,
+                name=f"{engine_id}-stderr-drain",
+            ).start()
 
         job_handle = _setup_windows_job_object(proc)
 
@@ -167,8 +226,16 @@ class ProcessSupervisor:
             await asyncio.sleep(0.05)
 
         if port is None or proc.poll() is not None:
-            err = proc.stderr.read() if proc.stderr else "Unknown error"
+            err = "\n".join(stderr_tail) or "Unknown error"
             raise RuntimeError(f"Failed to start worker for engine {engine_id}: {err}")
+
+        if proc.stdout:
+            threading.Thread(
+                target=_drain_worker_stream,
+                args=(proc.stdout, engine_id, "stdout", deque(maxlen=50)),
+                daemon=True,
+                name=f"{engine_id}-stdout-drain",
+            ).start()
 
         instance = WorkerInstance(
             engine_id=engine_id,

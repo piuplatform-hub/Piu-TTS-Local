@@ -32,9 +32,18 @@ class EngineService:
                 if manifest_file.exists():
                     try:
                         manifest = EngineManifest.from_file(str(manifest_file))
+                        runtime_device = manifest.hardware_profile.default_device
                         # Start worker subprocess via supervisor if requested and not running
                         if spawn_workers:
-                            await supervisor.start_worker(manifest=manifest, workspace_root=workspace_root)
+                            worker = await supervisor.start_worker(manifest=manifest, workspace_root=workspace_root)
+                            try:
+                                health = await worker.client.get_health()
+                                if health.device in {"cpu", "gpu"}:
+                                    runtime_device = health.device
+                            except Exception:
+                                # Keep the manifest preference if a health probe
+                                # cannot report the runtime device yet.
+                                pass
 
                         # Sync with database registry
                         stmt = select(EngineRecord).where(EngineRecord.id == manifest.engine_id)
@@ -46,7 +55,7 @@ class EngineService:
                                 name=manifest.name,
                                 version=manifest.version,
                                 approval_status="approved",
-                                device_target=manifest.hardware_profile.default_device,
+                                device_target=runtime_device,
                                 capabilities=[c.value for c in manifest.capabilities],
                                 manifest_data=manifest.model_dump(),
                             )
@@ -54,6 +63,7 @@ class EngineService:
                         else:
                             rec.name = manifest.name
                             rec.version = manifest.version
+                            rec.device_target = runtime_device
                             rec.capabilities = [c.value for c in manifest.capabilities]
                             rec.manifest_data = manifest.model_dump()
                         await db.commit()

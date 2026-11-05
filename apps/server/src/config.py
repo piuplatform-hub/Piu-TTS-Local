@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     # Hardware & Concurrency
     MAX_CONCURRENT_CPU_JOBS: int = 1
     ENABLE_GPU_INFERENCE: bool = False
+    VIENEU_DEVICE: str = "auto"
 
     # Scheduler Execution Mode (True: runs inside FastAPI lifespan; False: external runner.py)
     EMBEDDED_SCHEDULER: bool = True

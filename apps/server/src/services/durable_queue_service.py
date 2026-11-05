@@ -25,6 +25,7 @@ from .event_service import event_service
 from .job_state_machine import JobStateMachine, JobState
 from .resource_manager import resource_manager
 from .user_quota_service import UserQuotaService
+from ..supervisor.supervisor import supervisor
 
 
 class FencingTokenError(AppException):
@@ -38,6 +39,28 @@ class FencingTokenError(AppException):
 
 
 class DurableQueueService:
+    @staticmethod
+    async def _resolve_resource_type(engine_rec: EngineRecord, engine_id: str) -> str:
+        """Use the worker's detected device for auto-selecting engines."""
+        device_target = (engine_rec.device_target or "cpu").lower()
+
+        if engine_id == "vieneu-tts":
+            client = supervisor.get_client(engine_id)
+            if client:
+                try:
+                    health = await client.get_health()
+                    if health.device in {"cpu", "gpu"}:
+                        return health.device
+                except Exception:
+                    pass
+            if device_target == "gpu":
+                return "gpu"
+            # Unknown worker state is treated conservatively as CPU. The
+            # worker itself will still attempt GPU when it is initialized.
+            return "cpu"
+
+        return "gpu" if device_target == "gpu" or "qwen" in engine_id.lower() else "cpu"
+
     @staticmethod
     async def _validate_and_sanitize_request(
         db: AsyncSession,
@@ -361,8 +384,7 @@ class DurableQueueService:
         )
 
         # Determine resource type
-        device_target = (engine_rec.device_target or "cpu").lower()
-        resource_type = "gpu" if device_target == "gpu" or "qwen" in req.engine_id.lower() else "cpu"
+        resource_type = await DurableQueueService._resolve_resource_type(engine_rec, req.engine_id)
 
         # 4. Resource & Quota Checks
         # A. Outstanding active/queued jobs limit per user

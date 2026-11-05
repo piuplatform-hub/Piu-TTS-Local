@@ -1,6 +1,7 @@
 """
 AI Voice Studio — VieNeu-TTS v3 Turbo Worker Process
-Runs isolated in Python 3.12 (vieneu_env) on CPU via ONNX Runtime.
+Runs isolated in Python 3.12 (vieneu_env) with automatic CUDA/PyTorch
+selection and an ONNX Runtime CPU fallback.
 Exposes loopback HTTP interface compliant with Engine Adapter SDK v1.0.
 """
 
@@ -72,6 +73,39 @@ class VieNeuModelManager:
         self._lock = threading.Lock()
         self._model = None
         self._state = "unloaded"
+        self._device = self._detect_device()
+        self._backend = "pytorch" if self._device == "gpu" else "onnx"
+        self._fallback_reason = None
+
+    @staticmethod
+    def _cuda_available() -> bool:
+        """Return whether the worker environment can initialize CUDA safely."""
+        try:
+            import torch
+
+            return bool(torch.cuda.is_available())
+        except Exception:
+            return False
+
+    @classmethod
+    def _detect_device(cls) -> str:
+        """
+        Resolve the requested device before loading model weights.
+
+        ``auto`` is the default. Explicit ``cpu`` is useful for diagnostics,
+        while explicit ``gpu`` still falls back to CPU when CUDA is absent.
+        """
+        requested = os.environ.get("VIENEU_DEVICE", "auto").strip().lower()
+        if requested in {"cpu", "onnx"}:
+            return "cpu"
+        if requested in {"gpu", "cuda"}:
+            return "gpu" if cls._cuda_available() else "cpu"
+        return "gpu" if cls._cuda_available() else "cpu"
+
+    @staticmethod
+    def _load_cpu_model(vieneu_factory):
+        """Force the upstream SDK's ONNX backend for a CPU fallback."""
+        return vieneu_factory(backend="onnx")
 
     def get_model(self):
         with self._lock:
@@ -79,7 +113,30 @@ class VieNeuModelManager:
                 self._state = "loading"
                 try:
                     from vieneu import Vieneu
-                    self._model = Vieneu()
+
+                    if self._device == "gpu":
+                        try:
+                            # VieNeu auto-selects its PyTorch/CUDA backend when
+                            # CUDA is available in the worker environment.
+                            self._model = Vieneu()
+                            self._backend = "pytorch"
+                        except Exception as gpu_exc:
+                            # A visible CUDA device is not sufficient proof that
+                            # model initialization will succeed (driver, VRAM,
+                            # or torch wheel problems can still occur).
+                            self._fallback_reason = str(gpu_exc)
+                            try:
+                                self._model = self._load_cpu_model(Vieneu)
+                            except Exception as cpu_exc:
+                                raise RuntimeError(
+                                    f"GPU initialization failed: {gpu_exc}; "
+                                    f"CPU fallback failed: {cpu_exc}"
+                                ) from cpu_exc
+                            self._device = "cpu"
+                            self._backend = "onnx"
+                    else:
+                        self._model = self._load_cpu_model(Vieneu)
+                        self._backend = "onnx"
                     self._state = "ready"
                 except Exception as exc:
                     self._state = "error"
@@ -103,8 +160,55 @@ class VieNeuModelManager:
     def state(self) -> str:
         return self._state
 
+    @property
+    def device(self) -> str:
+        return self._device
+
+    @property
+    def backend(self) -> str:
+        return self._backend
+
+    @property
+    def fallback_reason(self):
+        return self._fallback_reason
+
 
 model_manager = VieNeuModelManager()
+_time_stretch_ready = threading.Event()
+_time_stretch_started = False
+_time_stretch_start_lock = threading.Lock()
+
+
+def _warm_time_stretch() -> None:
+    """Compile librosa's optional phase-vocoder path in the background."""
+    try:
+        import librosa
+
+        warm_audio = np.zeros(4096, dtype=np.float32)
+        librosa.effects.time_stretch(warm_audio, rate=0.95)
+    except Exception:
+        # Speed control remains best-effort; synthesis itself must not fail
+        # because optional DSP warm-up is unavailable.
+        pass
+    finally:
+        _time_stretch_ready.set()
+
+
+def _start_time_stretch_warmup() -> None:
+    global _time_stretch_started
+    with _time_stretch_start_lock:
+        if _time_stretch_started:
+            return
+        _time_stretch_started = True
+        threading.Thread(target=_warm_time_stretch, daemon=True, name="vieneu-dsp-warmup").start()
+
+
+def _fast_speed_adjust(audio_array: np.ndarray, speed: float) -> np.ndarray:
+    """Bounded NumPy fallback while the optional phase-vocoder path warms up."""
+    target_len = max(1, int(round(len(audio_array) / float(speed))))
+    source_x = np.arange(len(audio_array), dtype=np.float32)
+    target_x = np.linspace(0, max(0, len(audio_array) - 1), target_len, dtype=np.float32)
+    return np.interp(target_x, source_x, audio_array).astype(np.float32, copy=False)
 
 
 class VieNeuWorkerHandler(BaseHTTPRequestHandler):
@@ -153,7 +257,9 @@ class VieNeuWorkerHandler(BaseHTTPRequestHandler):
                 "status": "healthy",
                 "engine_id": ENGINE_ID,
                 "state": model_manager.state if model_manager.state != "unloaded" else "ready",
-                "device": "cpu",
+                "device": model_manager.device,
+                "backend": model_manager.backend,
+                "fallback_reason": model_manager.fallback_reason,
                 "memory_mb": rss_mb,
             }).encode("utf-8")
             self.send_response(200)
@@ -274,11 +380,20 @@ class VieNeuWorkerHandler(BaseHTTPRequestHandler):
 
                 audio_array = model.infer(**infer_kwargs)
 
-                # DSP Post-Processing: Pitch-preserving time stretch if speed != 1.0
+                # Optional speed adjustment after neural synthesis.
                 if abs(speed - 1.0) > 0.02 and len(audio_array) > 0:
                     try:
-                        import librosa
-                        audio_array = librosa.effects.time_stretch(audio_array, rate=float(speed))
+                        if _time_stretch_ready.is_set():
+                            import librosa
+
+                            audio_array = librosa.effects.time_stretch(audio_array, rate=float(speed))
+                        else:
+                            # The first librosa/numba compile can take tens of
+                            # seconds. Return promptly with a bounded resample,
+                            # while compiling the pitch-preserving path for the
+                            # next request in the background.
+                            _start_time_stretch_warmup()
+                            audio_array = _fast_speed_adjust(audio_array, speed)
                     except Exception:
                         pass
 

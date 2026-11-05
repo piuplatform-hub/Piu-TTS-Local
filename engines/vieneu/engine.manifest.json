@@ -5,7 +5,7 @@
   "version": "3.8.3",
   "author": "pnnbao97 / OpenMOSS Team",
   "license": "Apache-2.0",
-  "description": "High-quality neural Vietnamese speech synthesis and voice cloning on CPU using ONNX Runtime FP32",
+  "description": "High-quality neural Vietnamese speech synthesis and voice cloning using PyTorch CUDA when available, with ONNX Runtime FP32 CPU fallback",
   "capabilities": [
     "text_to_speech",
     "voice_cloning",
@@ -24,9 +24,10 @@
   },
   "hardware_profile": {
     "supported_devices": [
-      "cpu"
+      "cpu",
+      "gpu"
     ],
-    "default_device": "cpu",
+    "default_device": "auto",
     "estimated_vram_mb": 0,
     "estimated_ram_mb": 2048
   },
