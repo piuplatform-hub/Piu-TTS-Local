@@ -43,6 +43,8 @@ Set `SECRET_KEY` and `STUDIO_DATA_DIR` in `.env`. Keep `VIENEU_DEVICE=auto` for 
 
 ## 4. Run locally
 
+For a quick start after the one-time installation, double-click `start_piu_tts.bat`. It opens the API and Vite development server in separate windows, reuses processes that are already listening, and opens the browser automatically. The PowerShell implementation is `start_piu_tts.ps1`.
+
 Start the API in one terminal:
 
 ```powershell
